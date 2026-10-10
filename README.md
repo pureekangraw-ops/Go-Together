@@ -2,20 +2,24 @@
 
 GO reasons, verifies, decides, and chooses what to remember. Intake is a deterministic tool: **search, retrieve, organize, edit, and provide source extracts for summarization**. It does not think independently, invent fields, or silently change records.
 
-## Production — single owner identity
+## Production — GO Brain direct OAuth
 
-- Worker and web UI: https://go-together.pureekangraw.workers.dev
+- Worker/web UI: https://go-together.pureekangraw.workers.dev
 - MCP: https://go-together.pureekangraw.workers.dev/mcp
-- Data: dedicated Cloudflare D1 database `go-together` (`DB`); never modify `picxie`.
-- Identity is verified **once** by Cloudflare Access for the entire `go-together` Worker. Allowed owner email is pinned in Access policy and `OWNER_EMAIL` config. The Worker checks only Access's verified identity (audience + owner email) before running GO's request.
-- The intended OAuth provider is **Cloudflare Access Managed OAuth**. ChatGPT's existing GO-Together private plugin uses DCR and no additional per-tool permission scopes. No homegrown OAuth issuer, local tokens, per-tool reapproval, or GO-specific login account.
-- Manual web UI and MCP both reach the same Intake operations after owner identity succeeds. Intake validates inputs, revisions, evidence, and database integrity; it does not authorize or judge GO.
-- Archive/delete preserves revision history; concurrent writes use `expected_revision` and database audit triggers. Retrieval is lexical, including Thai n-grams; snippets are not independent AI conclusions.
-- **Deployment acceptance remains pending until Cloudflare Access protects the whole Worker with Managed OAuth and ChatGPT finishes interactive owner login.** A successful Wrangler deployment by itself does not establish OAuth functionality.
+- Data: existing dedicated D1 `go-together` (`DB`); memories/history are unchanged.
+- MCP uses the same OAuth protocol implementation as Metropolis: ChatGPT CIMD, S256 PKCE, owner passcode, isolated resource-bound access tokens and rotating refresh tokens with replay revocation. GO Brain uses only its own existing `BRAIN_OAUTH_SIGNING_KEY` and `BRAIN_OWNER_PASSCODE`; Metro tokens/keys are not reused.
+- The fixed identity is BIG authorizing GO, with `brain-owner` scope. No separate Work lifecycle is introduced.
+- MCP initialize/discovery/catalog are public; memory operations require the verified Brain bearer token. Anonymous catalog access reveals schemas only.
+- `BRAIN_AUTH_MODE=DIRECT` selects native MCP authentication. Existing Cloudflare Access is retained only for web-owner `/auth/*` and `/api/*`; its Worker-wide MCP destination must be removed after the native handler deploys. No new Access application is needed.
+- Health reports the deployed source SHA. Code tests and public OAuth discovery do not prove ChatGPT owner acceptance; the final live test is login → brain_list → synthetic save/retrieve/soft-delete → refresh.
 
-### Required Cloudflare Access configuration
+### ChatGPT connection
 
-Edit the existing **GO-Together Owner Login** Access application; **replace** its former `/auth` public-path destination with the `go-together` Worker destination (production traffic). Keep the owner-email-only policy, and enable **Managed OAuth** with DCR limited to ChatGPT callback URLs. Do not create an extra Access application or bypass policy. After the edge configuration is saved, verify an unauthenticated `/mcp` request receives the Access OAuth challenge, then complete ChatGPT login and run `brain_list` and a safe create/readback/delete test.
+Use the existing GO Brain app with MCP URL `https://go-together.pureekangraw.workers.dev/mcp`. Refresh its schema/connection after deployment, select OAuth or no authentication, and use CIMD without manually entering a Client ID or Client Secret. The server prompts for GO Brain's owner passcode once, then refreshes the connection through rotating refresh tokens.
+
+### Migration
+
+Apply `migrations/0001_brain_direct_oauth.sql` before deploying. It adds only replay/rate-limit ledger tables and does not alter memory records, history, or the legacy auth tables.
 
 ## Owner API
 

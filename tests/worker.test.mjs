@@ -11,7 +11,7 @@ test('owner can initialize MCP',async()=>{const ctx={access:{aud:'aud',getIdenti
 
 test('wrong Access owner is rejected',async()=>{const ctx={access:{aud:'aud',getIdentity:async()=>({email:'other@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{}'}),env,ctx);assert.equal(r.status,401);});
 test('wrong Access audience is rejected',async()=>{const ctx={access:{aud:'another-aud',getIdentity:async()=>({email:'owner@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{}'}),env,ctx);assert.equal(r.status,401);});
-test('owner lists Intake tools without extra permission checks',async()=>{const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})}),env,ctx);const x=(await r.json()).result.tools;assert.ok(x.some(t=>t.name==='brain_save'));assert.ok(x.every(t=>!t.securitySchemes));});
+test('owner lists Intake tools without extra permission checks',async()=>{const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})}),env,ctx);const x=(await r.json()).result.tools;assert.ok(x.some(t=>t.name==='brain_save'));assert.ok(x.every(t=>t.securitySchemes[0].type==='oauth2'&&t.securitySchemes[0].scopes.length===0));});
 
 
 const ownerContext={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
@@ -49,9 +49,9 @@ test('Cloudflare signed JWT works when ctx.access is missing',async()=>{
  const oldFetch=globalThis.fetch;
  globalThis.fetch=async()=>new Response(JSON.stringify({keys:[jwk]}),{status:200,headers:{'content-type':'application/json'}});
  const signedEnv={...env,ACCESS_TEAM_DOMAIN:'test.cloudflareaccess.com'};
- const call=async claims=>worker.fetch(new Request(ROOT+'/mcp',{method:'POST',headers:{'Cf-Access-Jwt-Assertion':await sign(claims)},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'})}),signedEnv,{});
+ const call=async claims=>worker.fetch(new Request(ROOT+'/mcp',{method:'POST',headers:{'Cf-Access-Jwt-Assertion':await sign(claims)},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'ping'})}),signedEnv,{});
  try{
-  const good=await call(valid);assert.equal(good.status,200);assert.ok((await good.json()).result.tools.length>0);
+  const good=await call(valid);assert.equal(good.status,200);assert.deepEqual((await good.json()).result,{});
   assert.equal((await call({...valid,email:'other@example.com'})).status,401);
   assert.equal((await call({...valid,aud:['other-audience']})).status,401);
   assert.equal((await call({...valid,exp:now-1})).status,401);

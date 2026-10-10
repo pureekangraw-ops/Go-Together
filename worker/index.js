@@ -1,4 +1,7 @@
+import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
+import {brainOAuthConfig} from './oauth-ledger.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
+const SOURCE_SHA='__SOURCE_SHA__';
 const ORIGIN='https://go-together.pureekangraw.workers.dev';
 const RESOURCE=ORIGIN+'/mcp';
 const HEAD={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -94,16 +97,16 @@ if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});
-const MCP_INFO={name:'go-together',version:'1.2.0'};
+const MCP_INFO={name:'go-together',version:'1.3.0'};
 const MCP_NEW='2026-07-28';
 function mcpReply(id,result,modern=false){
  const payload=modern?{...result,_meta:{...(result._meta||{}),'io.modelcontextprotocol/serverInfo':MCP_INFO}}:result;
  return rpc(id,payload);
 }
 async function mcp(req,env,ctx){
- if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');
  if(req.method!=='POST')return error(405,'method_not_allowed');
  const x=await body(req);
+ if(!['initialize','server/discover','tools/list','notifications/initialized'].includes(x.method) && !(await owner(req,env,ctx)))return reply({error:'owner_auth_required'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource/mcp"'});
  const isModern=req.headers.get('MCP-Protocol-Version')===MCP_NEW||x.params?._meta?.['io.modelcontextprotocol/protocolVersion']===MCP_NEW;
  if(x.method==='server/discover')return mcpReply(x.id,{
   resultType:'complete',supportedVersions:[MCP_NEW,'2025-06-18'],
@@ -112,8 +115,9 @@ async function mcp(req,env,ctx){
  if(x.method==='notifications/initialized')return new Response(null,{status:202});
  if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false}},serverInfo:MCP_INFO});
  if(x.method==='ping')return rpc(x.id,{});
- if(x.method==='tools/list')return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),tools},isModern);
+ if(x.method==='tools/list')return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),tools:tools.map(t=>({...t,securitySchemes:[{type:'oauth2',scopes:[]}]}))},isModern);
  if(x.method==='tools/call'){
+  if(!(await owner(req,env,ctx)))return reply({error:'owner_auth_required'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource/mcp"'});
   const name=x.params?.name,a=x.params?.arguments||{};
   if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
   try{
@@ -172,6 +176,9 @@ async function signedAccessOwner(req,env){
  }catch{return ownerReject('jwt_validation_exception');}
 }
 async function owner(req,env,ctx){
+ if(env.BRAIN_AUTH_MODE==='DIRECT' && new URL(req.url).pathname==='/mcp'){
+  try{const identity=await verifyAccessToken(req,brainOAuthConfig(env));return identity.owner==='BIG' && identity.actor==='GO' && identity.scope==='brain-owner';}catch{return false;}
+ }
  if(ctx?.access?.aud===env.ACCESS_AUD){
   try{
    const identity=await ctx.access.getIdentity();
@@ -187,7 +194,8 @@ async function owner(req,env,ctx){
  return signedAccessOwner(req,env);
 }
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
-if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:'owner-only'},v?.healthy===1?200:503);}
+if(p.startsWith('/oauth/')||p.startsWith('/.well-known/oauth-'))return createOAuthHandler(brainOAuthConfig(env))(req);
+if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:env.BRAIN_AUTH_MODE==='DIRECT'?'direct-cimd-pkce':'owner-only',source_sha:SOURCE_SHA},v?.healthy===1?200:503);}
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');
 if(p==='/mcp')return mcp(req,env,ctx);
 if(p.startsWith('/api/'))return api(req,env,url,ctx);

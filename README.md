@@ -1,47 +1,31 @@
-# GO-Together — Personal Brain prototype
+# GO-Together — GO Personal Brain
 
-A small local-only proof slice for collecting, searching, reviewing, updating, archiving, and restoring GO knowledge with WorkID/evidence links and an auditable change history.
+GO reasons, verifies, decides, and chooses what to remember. Intake is a deterministic tool: **search, retrieve, organize, edit, and provide source extracts for summarization**. It does not think independently, invent fields, or silently change records.
 
-## Run locally
+## Production
 
-```bash
-python3 server.py
-```
+- Worker: https://go-together.pureekangraw.workers.dev
+- MCP endpoint: https://go-together.pureekangraw.workers.dev/mcp
+- D1 database: go-together, bound as `DB`.
+- Owner browser sign-in: `/auth/login`, protected by an owner-only Cloudflare Access application on `/auth/*`. The owner must sign in to use the UI.
+- ChatGPT OAuth: MCP protected resource metadata, OAuth authorization-server metadata, PKCE S256 authorization code/refresh token, ChatGPT client ID metadata document checks. ChatGPT owner connection requires explicit user authorization.
+- `GET /api/health` is public and only checks D1 connectivity. No memory data is exposed publicly.
+- Personal data API and `/mcp` reject anonymous requests. Bearer tokens are stored as SHA-256 hashes in D1.
+- Archive/delete retains a revisioned audit trail. Concurrent writes require `expected_revision`; history uses database triggers.
+- Retrieval is **lexical**, including Thai character n-grams. Summaries are evidence-linked excerpts, not a separately reasoning AI.
 
-Open `http://127.0.0.1:8765`. Data is stored in `data/personal_brain.sqlite3` by default. Override with `BRAIN_DB` or `BRAIN_PORT` if needed.
+## Owner API
 
-## Verify
+`GET /api/memories`, `GET /api/retrieve?q=...`, `GET /api/summarize?q=...`, `GET /api/memories/{id}`, `GET /api/memories/{id}/history`, `POST /api/memories`, `PATCH /api/memories/{id}`, `POST /api/memories/{id}/status`, `DELETE /api/memories/{id}`, `POST /api/memories/{id}/restore`.
 
-```bash
-python3 -m unittest discover -s tests -v
-```
+MCP tools: `brain_search`, `brain_retrieve`, `brain_list`, `brain_save`, `brain_edit`, `brain_set_status`, `brain_history`, and `brain_summarize`.
 
-## API
+## Storage & safety
 
-- `GET /api/health`
-- `GET /api/memories?status=active&kind=operational_memory&q=...`
-- `GET /api/retrieve?q=...` — lexical token matching only; not embeddings or semantic search
-- `GET /api/memories/{id}/history`
-- `POST /api/memories`
-- `PATCH /api/memories/{id}`
-- `POST /api/memories/{id}/status`
-- `DELETE /api/memories/{id}` — soft delete; audit retained
-- `POST /api/memories/{id}/restore`
+`schema.sql` captures owned D1 tables, indexes, and audit triggers. Never connect the `picxie` database here. No WorkID is issued by this service; optional `work_id` is a pointer to the original Work System record.
 
-## Role boundaries
+### Tests
 
-- **GO** reasons, decides what matters, and owns learning or correction.
-- **Intake** is a deterministic tool boundary: accept an explicit operation, validate its supplied fields, execute it, and return the result. It does not infer intent, invent missing fields, silently reclassify content, or decide to change a memory.
-- **Personal Brain** stores and returns records, status, provenance, and change history.
-- This prototype currently exposes typed API/UI operations only. It does not parse natural-language commands or generate summaries. Invalid or incomplete requests are rejected rather than guessed.
-- Retrieval uses deterministic lexical matching and returns source-linked records; GO evaluates their meaning and fit.
+`node --test tests/worker.test.mjs`. The earlier Python `server.py` and `tests/test_server.py` remain a **local-only legacy prototype**, not used by Cloudflare Worker deployments.
 
-## Prototype boundaries
-
-- Binds to loopback only. Do not expose this server to a network.
-- Single local SQLite store; no authentication, remote hosting, cloud sync, or cross-room agent connection yet.
-- Local SQLite is not encrypted by the app; protect the host device and backups.
-- Search is transparent lexical matching; no embeddings or model calls.
-- No model fine-tuning or weight changes.
-- No live Notion/WorkID verification: supplied links are stored as provenance pointers only.
-- Before deployment, add owner authentication, encrypted backups, concurrency/version conflict handling, a tested agent-facing connector, and security review.
+Do not change Cloudflare Access to allow everyone. Do not enable public memory APIs. Protect owner information and use D1 backups before major migrations.

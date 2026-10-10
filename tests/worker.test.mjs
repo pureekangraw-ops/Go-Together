@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../worker/index.js';
+const ROOT='https://go-together.pureekangraw.workers.dev';
+const env={DB:{prepare:()=>({first:async()=>({healthy:1})})},ASSETS:{fetch:async()=>new Response('static')}};
+const get=(path)=>worker.fetch(new Request(ROOT+path),env,{});
+test('health queries bound D1',async()=>{const r=await get('/api/health');assert.equal(r.status,200);assert.equal((await r.json()).storage,'Cloudflare D1');});
+test('private memory list rejects unauthenticated access',async()=>{const r=await get('/api/memories');assert.equal(r.status,401);});
+test('private MCP endpoint rejects anonymous callers',async()=>{const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{}'}),env,{});assert.equal(r.status,401);});
+test('OAuth metadata advertises S256 and owner resource',async()=>{const r=await get('/.well-known/oauth-authorization-server');assert.ok((await r.json()).code_challenge_methods_supported.includes('S256'));const m=await get('/.well-known/oauth-protected-resource');assert.equal((await m.json()).resource,ROOT+'/mcp');});

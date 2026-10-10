@@ -59,7 +59,7 @@ async function body(req){const txt=await req.text();if(txt.length>1000000)throw 
 async function authenticate(req,env){const bearer=/^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization')||'');if(bearer&&bearer[1].length<=512){const r=await env.DB.prepare('SELECT * FROM auth_tokens WHERE token_hash=? AND expires_at>?').bind(await hash(bearer[1]),stamp()).first();if(r&&r.resource===RESOURCE)return {scope:r.scope};}
 const c=/\bgt_session=([a-f0-9]{64})\b/.exec(req.headers.get('cookie')||'');if(c){const r=await env.DB.prepare('SELECT token_hash FROM auth_sessions WHERE token_hash=? AND expires_at>?').bind(await hash(c[1]),stamp()).first();if(r)return {scope:'brain:read brain:write'};}return null;}
 const challenge=()=>reply({error:'unauthorized'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="brain:read brain:write"'});
-async function api(req,env,url){const actor=await authenticate(req,env);if(!actor)return challenge();if(req.method==='GET'&&!actor.scope.split(' ').includes('brain:read'))return error(403,'insufficient_scope');if(req.method!=='GET'&&!actor.scope.split(' ').includes('brain:write'))return error(403,'insufficient_scope');const p=url.pathname,m=req.method,d=env.DB;
+async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));
@@ -97,12 +97,12 @@ if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});
-async function mcp(req,env){const actor=await authenticate(req,env);if(!actor)return challenge();if(req.method!=='POST')return error(405,'method_not_allowed');const x=await body(req);
+async function mcp(req,env,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');if(req.method!=='POST')return error(405,'method_not_allowed');const x=await body(req);
 if(x.method==='notifications/initialized')return new Response(null,{status:202});
 if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false}},serverInfo:{name:'go-together',version:'1.0.0'}});
 if(x.method==='ping')return rpc(x.id,{});
-if(x.method==='tools/list')return rpc(x.id,{tools:tools.map(t=>({...t,securitySchemes:[{type:'oauth2',scopes:['brain:read','brain:write']}]}))});
-if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});if(['brain_save','brain_edit','brain_set_status'].includes(name)&&!actor.scope.includes('brain:write'))return error(403,'insufficient_scope');
+if(x.method==='tools/list')return rpc(x.id,{tools});
+if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
 try{const value=await toolCall(name,a,env.DB);return rpc(x.id,{content:[{type:'text',text:JSON.stringify(value)}]});}catch(e){return rpc(x.id,{content:[{type:'text',text:e.message}],isError:true});}}
 return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});}
 let accessJwks=null,accessJwksAge=0;
@@ -153,13 +153,8 @@ async function login(req,env,ctx){if(!(await owner(req,env,ctx)))return error(40
 async function logout(req,env){const m=/\bgt_session=([0-9a-f]{64})\b/.exec(req.headers.get('cookie')||'');if(m)await env.DB.prepare('DELETE FROM auth_sessions WHERE token_hash=?').bind(await hash(m[1])).run();return new Response(null,{status:303,headers:{location:'/', 'set-cookie':'gt_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'}});}
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:'owner-only'},v?.healthy===1?200:503);}
-if(p==='/.well-known/oauth-protected-resource'||p==='/.well-known/oauth-protected-resource/mcp')return reply({resource:RESOURCE,authorization_servers:[ORIGIN],scopes_supported:['brain:read','brain:write']});
-if(p==='/.well-known/oauth-authorization-server')return reply(oauthMeta());
-if(p==='/auth/login')return login(req,env,ctx);
-if(p==='/auth/authorize')return authorize(req,env,ctx,url);
-if(p==='/auth/logout'&&req.method==='POST')return logout(req,env);
-if(p==='/oauth/token'&&req.method==='POST')return token(req,env);
-if(p==='/mcp')return mcp(req,env);
-if(p.startsWith('/api/'))return api(req,env,url);
+if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');
+if(p==='/mcp')return mcp(req,env,ctx);
+if(p.startsWith('/api/'))return api(req,env,url,ctx);
 return env.ASSETS.fetch(req);
 }catch(e){if(e instanceof Bad)return error(e.status,e.message);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};

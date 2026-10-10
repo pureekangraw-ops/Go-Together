@@ -7,6 +7,8 @@ const get=(path)=>worker.fetch(new Request(ROOT+path),env,{});
 test('health queries bound D1',async()=>{const r=await get('/api/health');assert.equal(r.status,200);assert.equal((await r.json()).storage,'Cloudflare D1');});
 test('private memory list rejects unauthenticated access',async()=>{const r=await get('/api/memories');assert.equal(r.status,401);});
 test('private MCP endpoint rejects anonymous callers',async()=>{const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{}'}),env,{});assert.equal(r.status,401);});
+test('empty ChatGPT connection probe returns OAuth challenge',async()=>{const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:''}),env,{});assert.equal(r.status,401);assert.match(r.headers.get('www-authenticate'),/oauth-protected-resource\/mcp/);});
+test('malformed MCP JSON returns 400 without an unhandled rejection',async()=>{const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{'}),env,{});assert.equal(r.status,400);assert.equal((await r.json()).error,'invalid_json');});
 test('owner can initialize MCP',async()=>{const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize'})}),env,ctx);assert.equal(r.status,200);});
 
 test('wrong Access owner is rejected',async()=>{const ctx={access:{aud:'aud',getIdentity:async()=>({email:'other@example.com'})}};const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:'{}'}),env,ctx);assert.equal(r.status,401);});

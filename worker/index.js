@@ -58,7 +58,7 @@ for(const raw of r.results||[]){const x=memory(raw),got=tokenize([x.title,x.titl
 hits.sort((a,b)=>b.score-a.score||b.memory.updated_at.localeCompare(a.memory.updated_at));const rows=hits.slice(0,Math.min(50,Math.max(1,Number(limit)||25)));
 return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical matching only; GO interprets the evidence.'};}
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
-async function body(req){const txt=await req.text();if(txt.length>1000000)throw new Bad(413,'body_too_large');try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
+async function body(req,allowEmpty=false){const txt=await req.text();if(txt.length>1000000)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
@@ -105,7 +105,7 @@ function mcpReply(id,result,modern=false){
 }
 async function mcp(req,env,ctx){
  if(req.method!=='POST')return error(405,'method_not_allowed');
- const x=await body(req);
+ const x=await body(req,true);
  if(!['initialize','server/discover','tools/list','notifications/initialized'].includes(x.method) && !(await owner(req,env,ctx)))return reply({error:'owner_auth_required'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource/mcp"'});
  const isModern=req.headers.get('MCP-Protocol-Version')===MCP_NEW||x.params?._meta?.['io.modelcontextprotocol/protocolVersion']===MCP_NEW;
  if(x.method==='server/discover')return mcpReply(x.id,{
@@ -197,7 +197,7 @@ export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pa
 if(p.startsWith('/oauth/')||p.startsWith('/.well-known/oauth-'))return createOAuthHandler(brainOAuthConfig(env))(req);
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:env.BRAIN_AUTH_MODE==='DIRECT'?'direct-cimd-pkce':'owner-only',source_sha:SOURCE_SHA},v?.healthy===1?200:503);}
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');
-if(p==='/mcp')return mcp(req,env,ctx);
-if(p.startsWith('/api/'))return api(req,env,url,ctx);
+if(p==='/mcp')return await mcp(req,env,ctx);
+if(p.startsWith('/api/'))return await api(req,env,url,ctx);
 return env.ASSETS.fetch(req);
 }catch(e){if(e instanceof Bad)return error(e.status,e.message);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};

@@ -94,16 +94,37 @@ if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});
-async function mcp(req,env,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');if(req.method!=='POST')return error(405,'method_not_allowed');const x=await body(req);
-if(x.method==='notifications/initialized')return new Response(null,{status:202});
-if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false}},serverInfo:{name:'go-together',version:'1.0.0'}});
-if(x.method==='ping')return rpc(x.id,{});
-if(x.method==='tools/list')return rpc(x.id,{tools});
-if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
-try{const value=await toolCall(name,a,env.DB);return rpc(x.id,{content:[{type:'text',text:JSON.stringify(value)}]});}catch(e){return rpc(x.id,{content:[{type:'text',text:e.message}],isError:true});}}
-return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});}
-// Cloudflare Access authenticates the owner at the edge. Managed OAuth forwards
-// a signed Access JWT in request headers even when ctx.access is unavailable.
+const MCP_INFO={name:'go-together',version:'1.2.0'};
+const MCP_NEW='2026-07-28';
+function mcpReply(id,result,modern=false){
+ const payload=modern?{...result,_meta:{...(result._meta||{}),'io.modelcontextprotocol/serverInfo':MCP_INFO}}:result;
+ return rpc(id,payload);
+}
+async function mcp(req,env,ctx){
+ if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');
+ if(req.method!=='POST')return error(405,'method_not_allowed');
+ const x=await body(req);
+ const isModern=req.headers.get('MCP-Protocol-Version')===MCP_NEW||x.params?._meta?.['io.modelcontextprotocol/protocolVersion']===MCP_NEW;
+ if(x.method==='server/discover')return mcpReply(x.id,{
+  resultType:'complete',supportedVersions:[MCP_NEW,'2025-06-18'],
+  capabilities:{tools:{listChanged:false}},cacheScope:'private',ttlMs:60000
+ },true);
+ if(x.method==='notifications/initialized')return new Response(null,{status:202});
+ if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{listChanged:false}},serverInfo:MCP_INFO});
+ if(x.method==='ping')return rpc(x.id,{});
+ if(x.method==='tools/list')return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),tools},isModern);
+ if(x.method==='tools/call'){
+  const name=x.params?.name,a=x.params?.arguments||{};
+  if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
+  try{
+   const value=await toolCall(name,a,env.DB);
+   return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:JSON.stringify(value)}]},isModern);
+  }catch(e){
+   return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:e.message}],isError:true},isModern);
+  }
+ }
+ return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});
+}
 let accessJwks=null,accessJwksAt=0;
 function decodeJwtPart(v){const padded=v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=');return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));}
 async function signedAccessOwner(req,env){

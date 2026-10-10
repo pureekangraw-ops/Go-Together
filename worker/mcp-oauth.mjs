@@ -454,9 +454,9 @@ function authorizePage(values) {
     ? `<input type="hidden" name="actor" value="${escapeHtml(values.fixedIdentity.subject)}"><p>Enter as <strong>${escapeHtml(values.fixedIdentity.subject)}</strong></p>`
     : '<label>Enter as <select name="actor" required><option value="GO">GO</option><option value="LIGHT">LIGHT</option></select></label>';
   const ownerNotice = values.ownerId
-    ? `<p>Owner <strong>${escapeHtml(values.ownerId)}</strong> authorizes this agent to act on their behalf, within Metropolis policy.</p>`
+    ? `<p>Owner <strong>${escapeHtml(values.ownerId)}</strong> authorizes this agent to act on their behalf, within GO Brain policy.</p>`
     : '';
-  return new Response(`<!doctype html><html><meta name="viewport" content="width=device-width"><title>Metropolis authorization</title><body><main><h1>Metropolis</h1><p>Authorize this Metropolis connection.</p>${ownerNotice}<form method="post">${hidden}${identity}<label>Owner passcode <input name="passcode" type="password" autocomplete="current-password" required></label><button type="submit">Authorize</button></form></main></body></html>`, {
+  return new Response(`<!doctype html><html><meta name="viewport" content="width=device-width"><title>GO Brain authorization</title><body><main><h1>GO Brain</h1><p>Authorize this GO Brain connection.</p>${ownerNotice}<form method="post">${hidden}${identity}<label>Owner passcode <input name="passcode" type="password" autocomplete="current-password" required></label><button type="submit">Authorize</button></form></main></body></html>`, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
   });
 }

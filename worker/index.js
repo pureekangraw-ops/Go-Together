@@ -102,7 +102,47 @@ if(x.method==='tools/list')return rpc(x.id,{tools});
 if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
 try{const value=await toolCall(name,a,env.DB);return rpc(x.id,{content:[{type:'text',text:JSON.stringify(value)}]});}catch(e){return rpc(x.id,{content:[{type:'text',text:e.message}],isError:true});}}
 return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});}
-async function owner(req,env,ctx){if(ctx?.access?.aud!==env.ACCESS_AUD)return false;try{const u=await ctx.access.getIdentity();return u?.email?.toLowerCase()===env.OWNER_EMAIL?.toLowerCase();}catch{return false;}}
+// Cloudflare Access authenticates the owner at the edge. Managed OAuth forwards
+// a signed Access JWT in request headers even when ctx.access is unavailable.
+let accessJwks=null,accessJwksAt=0;
+function decodeJwtPart(v){const padded=v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=');return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));}
+async function signedAccessOwner(req,env){
+ const jwt=req.headers.get('Cf-Access-Jwt-Assertion')||'';
+ if(!jwt||jwt.length>16384||!env.ACCESS_TEAM_DOMAIN||!env.ACCESS_AUD||!env.OWNER_EMAIL)return false;
+ const parts=jwt.split('.');
+ if(parts.length!==3)return false;
+ try{
+  const header=JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[0])));
+  const claims=JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[1])));
+  const now=Math.floor(Date.now()/1000);
+  if(header.alg!=='RS256'||typeof header.kid!=='string'||!header.kid)return false;
+  if(claims.iss!=='https://'+env.ACCESS_TEAM_DOMAIN||!([].concat(claims.aud||[]).includes(env.ACCESS_AUD)))return false;
+  if(typeof claims.email!=='string'||claims.email.toLowerCase()!==env.OWNER_EMAIL.toLowerCase())return false;
+  if(!Number.isFinite(claims.exp)||claims.exp<=now||(claims.nbf&&claims.nbf>now))return false;
+  let key=accessJwks?.keys?.find(k=>k.kid===header.kid);
+  if(!key||Date.now()-accessJwksAt>300000){
+   const res=await fetch('https://'+env.ACCESS_TEAM_DOMAIN+'/cdn-cgi/access/certs',{redirect:'error'});
+   if(!res.ok)return false;
+   const jwks=await res.json();
+   if(!Array.isArray(jwks?.keys))return false;
+   accessJwks=jwks;accessJwksAt=Date.now();
+   key=jwks.keys.find(k=>k.kid===header.kid);
+  }
+  if(!key)return false;
+  const publicKey=await crypto.subtle.importKey('jwk',key,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
+  return await crypto.subtle.verify('RSASSA-PKCS1-v1_5',publicKey,decodeJwtPart(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
+ }catch{return false;}
+}
+async function owner(req,env,ctx){
+ if(ctx?.access){
+  if(ctx.access.aud!==env.ACCESS_AUD)return false;
+  try{
+   const identity=await ctx.access.getIdentity();
+   if(identity?.email)return identity.email.toLowerCase()===env.OWNER_EMAIL?.toLowerCase();
+  }catch{}
+ }
+ return signedAccessOwner(req,env);
+}
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:'owner-only'},v?.healthy===1?200:503);}
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');

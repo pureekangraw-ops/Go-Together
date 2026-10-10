@@ -59,11 +59,11 @@ async function body(req){const txt=await req.text();if(txt.length>1000000)throw 
 async function authenticate(req,env){const bearer=/^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization')||'');if(bearer&&bearer[1].length<=512){const r=await env.DB.prepare('SELECT * FROM auth_tokens WHERE token_hash=? AND expires_at>?').bind(await hash(bearer[1]),stamp()).first();if(r&&r.resource===RESOURCE)return {scope:r.scope};}
 const c=/\bgt_session=([a-f0-9]{64})\b/.exec(req.headers.get('cookie')||'');if(c){const r=await env.DB.prepare('SELECT token_hash FROM auth_sessions WHERE token_hash=? AND expires_at>?').bind(await hash(c[1]),stamp()).first();if(r)return {scope:'brain:read brain:write'};}return null;}
 const challenge=()=>reply({error:'unauthorized'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="brain:read brain:write"'});
-async function api(req,env,url){const actor=await authenticate(req,env);if(!actor)return challenge();const p=url.pathname,m=req.method,d=env.DB;
+async function api(req,env,url){const actor=await authenticate(req,env);if(!actor)return challenge();if(req.method==='GET'&&!actor.scope.split(' ').includes('brain:read'))return error(403,'insufficient_scope');if(req.method!=='GET'&&!actor.scope.split(' ').includes('brain:write'))return error(403,'insufficient_scope');const p=url.pathname,m=req.method,d=env.DB;
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));
-if(p==='/api/memories'){if(m==='GET')return reply({items:await listing(d,Object.fromEntries(url.searchParams)),count:0});if(m==='POST')return reply(await save(d,await body(req)),201);}
+if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
 const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status))?$/.exec(p);
 if(!hit)return error(404,'not_found');const key=hit[1],action=hit[2];
 if(m==='GET'&&action==='history')return reply({items:await audit(d,key)});
@@ -105,7 +105,29 @@ if(x.method==='tools/list')return rpc(x.id,{tools:tools.map(t=>({...t,securitySc
 if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});if(['brain_save','brain_edit','brain_set_status'].includes(name)&&!actor.scope.includes('brain:write'))return error(403,'insufficient_scope');
 try{const value=await toolCall(name,a,env.DB);return rpc(x.id,{content:[{type:'text',text:JSON.stringify(value)}]});}catch(e){return rpc(x.id,{content:[{type:'text',text:e.message}],isError:true});}}
 return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});}
-async function owner(req,env,ctx){if(!ctx?.access||ctx.access.aud!==env.ACCESS_AUD)return false;try{const person=await ctx.access.getIdentity();return Boolean(person?.email);}catch{return false;}}
+let accessJwks=null,accessJwksAge=0;
+const bytes64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(s.length/4)*4,'=')),c=>c.charCodeAt(0));
+async function owner(req,env,ctx){
+  if(ctx?.access?.aud===env.ACCESS_AUD){try{const person=await ctx.access.getIdentity();if(person?.email)return true;}catch{}}
+  const token=req.headers.get('cf-access-jwt-assertion');
+  if(!token||!env.ACCESS_AUD||!env.ACCESS_TEAM_DOMAIN)return false;
+  const p=token.split('.');if(p.length!==3)return false;
+  try{
+    const h=JSON.parse(new TextDecoder().decode(bytes64(p[0])));
+    const claims=JSON.parse(new TextDecoder().decode(bytes64(p[1])));
+    const nowSecs=Math.floor(Date.now()/1000);
+    if(h.alg!=='RS256'||!h.kid||claims.iss!=='https://'+env.ACCESS_TEAM_DOMAIN||!([].concat(claims.aud||[]).includes(env.ACCESS_AUD))||!claims.email||!Number.isFinite(claims.exp)||claims.exp<=nowSecs||(claims.nbf&&claims.nbf>nowSecs))return false;
+    let jwk=accessJwks?.keys?.find(x=>x.kid===h.kid);
+    if(!jwk||Date.now()-accessJwksAge>300000){
+      const r=await fetch('https://'+env.ACCESS_TEAM_DOMAIN+'/cdn-cgi/access/certs',{redirect:'error'});
+      if(!r.ok)return false;
+      accessJwks=await r.json();accessJwksAge=Date.now();jwk=accessJwks.keys?.find(x=>x.kid===h.kid);
+    }
+    if(!jwk)return false;
+    const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
+    return await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,bytes64(p[2]),new TextEncoder().encode(p[0]+'.'+p[1]));
+  }catch{return false;}
+}
 const oauthMeta=()=>({issuer:ORIGIN,authorization_endpoint:ORIGIN+'/auth/authorize',token_endpoint:ORIGIN+'/oauth/token',response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['none'],client_id_metadata_document_supported:true,scopes_supported:['brain:read','brain:write'],authorization_response_iss_parameter_supported:true});
 async function clientAllowed(client,redirect){if(!/^https:\/\/chatgpt\.com\/oauth\/(?:client\.json|[a-zA-Z0-9_-]+\/client\.json)$/.test(client)||!/^https:\/\/chatgpt\.com\/(?:connector_platform_oauth_redirect|connector\/oauth\/[a-zA-Z0-9_-]+)$/.test(redirect))return false;
 try{const r=await fetch(client,{redirect:'error'});if(!r.ok)return false;const v=await r.json();return v.client_id===client&&Array.isArray(v.redirect_uris)&&v.redirect_uris.includes(redirect);}catch{return false;}}

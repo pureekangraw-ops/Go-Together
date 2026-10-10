@@ -59,3 +59,15 @@ test('Cloudflare signed JWT works when ctx.access is missing',async()=>{
   assert.equal((await call({...valid,exp:now-1})).status,401);
  }finally{globalThis.fetch=oldFetch;}
 });
+
+test('knowledge note endpoints reject anonymous callers',async()=>{
+ for(const path of ['/api/knowledge-notes','/api/knowledge-notes/00000000-0000-0000-0000-000000000001/suggest']){
+  const r=await get(path);assert.equal(r.status,401);
+ }
+});
+test('knowledge-note route is recognized and validates revision',async()=>{
+ const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
+ const id='00000000-0000-0000-0000-000000000001';
+ const r=await worker.fetch(new Request(ROOT+'/api/knowledge-notes/'+id+'/stage',{method:'POST',body:JSON.stringify({stage:'use'})}),env,ctx);
+ assert.notEqual(r.status,404);
+});

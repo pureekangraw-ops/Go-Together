@@ -56,9 +56,6 @@ hits.sort((a,b)=>b.score-a.score||b.memory.updated_at.localeCompare(a.memory.upd
 return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical matching only; GO interprets the evidence.'};}
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
 async function body(req){const txt=await req.text();if(txt.length>1000000)throw new Bad(413,'body_too_large');try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
-async function authenticate(req,env){const bearer=/^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization')||'');if(bearer&&bearer[1].length<=512){const r=await env.DB.prepare('SELECT * FROM auth_tokens WHERE token_hash=? AND expires_at>?').bind(await hash(bearer[1]),stamp()).first();if(r&&r.resource===RESOURCE)return {scope:r.scope};}
-const c=/\bgt_session=([a-f0-9]{64})\b/.exec(req.headers.get('cookie')||'');if(c){const r=await env.DB.prepare('SELECT token_hash FROM auth_sessions WHERE token_hash=? AND expires_at>?').bind(await hash(c[1]),stamp()).first();if(r)return {scope:'brain:read brain:write'};}return null;}
-const challenge=()=>reply({error:'unauthorized'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource", scope="brain:read brain:write"'});
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
@@ -105,52 +102,7 @@ if(x.method==='tools/list')return rpc(x.id,{tools});
 if(x.method==='tools/call'){const name=x.params?.name,a=x.params?.arguments||{};if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
 try{const value=await toolCall(name,a,env.DB);return rpc(x.id,{content:[{type:'text',text:JSON.stringify(value)}]});}catch(e){return rpc(x.id,{content:[{type:'text',text:e.message}],isError:true});}}
 return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});}
-let accessJwks=null,accessJwksAge=0;
-const bytes64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(s.length/4)*4,'=')),c=>c.charCodeAt(0));
-async function owner(req,env,ctx){
-  if(ctx?.access?.aud===env.ACCESS_AUD){try{const person=await ctx.access.getIdentity();if(person?.email)return true;}catch{}}
-  const token=req.headers.get('cf-access-jwt-assertion');
-  if(!token||!env.ACCESS_AUD||!env.ACCESS_TEAM_DOMAIN)return false;
-  const p=token.split('.');if(p.length!==3)return false;
-  try{
-    const h=JSON.parse(new TextDecoder().decode(bytes64(p[0])));
-    const claims=JSON.parse(new TextDecoder().decode(bytes64(p[1])));
-    const nowSecs=Math.floor(Date.now()/1000);
-    if(h.alg!=='RS256'||!h.kid||claims.iss!=='https://'+env.ACCESS_TEAM_DOMAIN||!([].concat(claims.aud||[]).includes(env.ACCESS_AUD))||!claims.email||!Number.isFinite(claims.exp)||claims.exp<=nowSecs||(claims.nbf&&claims.nbf>nowSecs))return false;
-    let jwk=accessJwks?.keys?.find(x=>x.kid===h.kid);
-    if(!jwk||Date.now()-accessJwksAge>300000){
-      const r=await fetch('https://'+env.ACCESS_TEAM_DOMAIN+'/cdn-cgi/access/certs',{redirect:'error'});
-      if(!r.ok)return false;
-      accessJwks=await r.json();accessJwksAge=Date.now();jwk=accessJwks.keys?.find(x=>x.kid===h.kid);
-    }
-    if(!jwk)return false;
-    const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
-    return await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,bytes64(p[2]),new TextEncoder().encode(p[0]+'.'+p[1]));
-  }catch{return false;}
-}
-const oauthMeta=()=>({issuer:ORIGIN,authorization_endpoint:ORIGIN+'/auth/authorize',token_endpoint:ORIGIN+'/oauth/token',response_types_supported:['code'],grant_types_supported:['authorization_code','refresh_token'],code_challenge_methods_supported:['S256'],token_endpoint_auth_methods_supported:['none'],client_id_metadata_document_supported:true,scopes_supported:['brain:read','brain:write'],authorization_response_iss_parameter_supported:true});
-async function clientAllowed(client,redirect){if(!/^https:\/\/chatgpt\.com\/oauth\/(?:client\.json|[a-zA-Z0-9_-]+\/client\.json)$/.test(client)||!/^https:\/\/chatgpt\.com\/(?:connector_platform_oauth_redirect|connector\/oauth\/[a-zA-Z0-9_-]+)$/.test(redirect))return false;
-try{const r=await fetch(client,{redirect:'error'});if(!r.ok)return false;const v=await r.json();return v.client_id===client&&Array.isArray(v.redirect_uris)&&v.redirect_uris.includes(redirect);}catch{return false;}}
-const b64=b=>btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
-async function authorize(req,env,ctx,url){if(!(await owner(req,env,ctx)))return error(403,'owner_only');const p=url.searchParams,client=p.get('client_id'),redirect=p.get('redirect_uri'),challenge=p.get('code_challenge'),resource=p.get('resource'),scope=p.get('scope')||'brain:read brain:write',state=p.get('state')||'';
-if(p.get('response_type')!=='code'||p.get('code_challenge_method')!=='S256'||!challenge||!/^[a-zA-Z0-9_-]{43,128}$/.test(challenge)||resource!==RESOURCE||scope.split(' ').some(s=>!['brain:read','brain:write'].includes(s))||!(await clientAllowed(client,redirect)))return error(400,'invalid_oauth_request');
-const c=secret();await env.DB.prepare('INSERT INTO oauth_codes(code_hash,client_id,redirect_uri,resource,code_challenge,scope,expires_at) VALUES(?,?,?,?,?,?,?)').bind(await hash(c),client,redirect,resource,challenge,scope,new Date(Date.now()+120000).toISOString()).run();
-const dest=new URL(redirect);dest.searchParams.set('code',c);dest.searchParams.set('state',state);dest.searchParams.set('iss',ORIGIN);return Response.redirect(dest.toString(),302);}
-async function token(req,env){const p=new URLSearchParams(await req.text()),grant=p.get('grant_type'),client=p.get('client_id'),resource=p.get('resource');
-if(!client||resource!==RESOURCE)return error(400,'invalid_client_or_resource');
-if(grant==='authorization_code'){
-const code=p.get('code')||'',verifier=p.get('code_verifier')||'',redirect=p.get('redirect_uri')||'';if(!/^[a-zA-Z0-9_.~-]{43,128}$/.test(verifier)||!code)return error(400,'invalid_grant');
-const key=await hash(code),row=await env.DB.prepare('SELECT * FROM oauth_codes WHERE code_hash=? AND expires_at>?').bind(key,stamp()).first();if(!row||row.client_id!==client||row.redirect_uri!==redirect||row.resource!==resource)return error(400,'invalid_grant');
-const challenge=b64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))));if(row.code_challenge!==challenge)return error(400,'invalid_grant');
-const access=secret(),refresh=secret();const results=await env.DB.batch([env.DB.prepare('DELETE FROM oauth_codes WHERE code_hash=?').bind(key),env.DB.prepare('INSERT INTO auth_tokens(token_hash,refresh_hash,client_id,resource,scope,expires_at,refresh_expires_at) VALUES(?,?,?,?,?,?,?)').bind(await hash(access),await hash(refresh),client,resource,row.scope,new Date(Date.now()+3600000).toISOString(),new Date(Date.now()+2592000000).toISOString())]);if(results[0].meta?.changes!==1)return error(400,'invalid_grant');
-return reply({access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope:row.scope});}
-if(grant==='refresh_token'){
-const old=p.get('refresh_token')||'',key=await hash(old),row=await env.DB.prepare('SELECT * FROM auth_tokens WHERE refresh_hash=? AND refresh_expires_at>?').bind(key,stamp()).first();if(!row||row.client_id!==client||row.resource!==resource)return error(400,'invalid_grant');
-const access=secret(),refresh=secret();await env.DB.prepare('UPDATE auth_tokens SET token_hash=?,refresh_hash=?,expires_at=?,refresh_expires_at=? WHERE refresh_hash=?').bind(await hash(access),await hash(refresh),new Date(Date.now()+3600000).toISOString(),new Date(Date.now()+2592000000).toISOString(),key).run();
-return reply({access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope:row.scope});}
-return error(400,'unsupported_grant_type');}
-async function login(req,env,ctx){if(!(await owner(req,env,ctx)))return error(403,'owner_only');const c=secret();await env.DB.prepare('INSERT INTO auth_sessions(token_hash,expires_at) VALUES(?,?)').bind(await hash(c),new Date(Date.now()+604800000).toISOString()).run();return new Response(null,{status:303,headers:{location:'/', 'set-cookie':'gt_session='+c+'; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=604800','cache-control':'no-store'}});}
-async function logout(req,env){const m=/\bgt_session=([0-9a-f]{64})\b/.exec(req.headers.get('cookie')||'');if(m)await env.DB.prepare('DELETE FROM auth_sessions WHERE token_hash=?').bind(await hash(m[1])).run();return new Response(null,{status:303,headers:{location:'/', 'set-cookie':'gt_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0'}});}
+async function owner(req,env,ctx){if(ctx?.access?.aud!==env.ACCESS_AUD)return false;try{const u=await ctx.access.getIdentity();return u?.email?.toLowerCase()===env.OWNER_EMAIL?.toLowerCase();}catch{return false;}}
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:'owner-only'},v?.healthy===1?200:503);}
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');

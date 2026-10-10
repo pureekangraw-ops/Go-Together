@@ -2,17 +2,20 @@
 
 GO reasons, verifies, decides, and chooses what to remember. Intake is a deterministic tool: **search, retrieve, organize, edit, and provide source extracts for summarization**. It does not think independently, invent fields, or silently change records.
 
-## Production
+## Production — single owner identity
 
-- Worker: https://go-together.pureekangraw.workers.dev
-- MCP endpoint: https://go-together.pureekangraw.workers.dev/mcp
-- D1 database: go-together, bound as `DB`.
-- Owner browser sign-in: `/auth/login`, protected by an owner-only Cloudflare Access application on `/auth/*`. The owner must sign in to use the UI.
-- ChatGPT OAuth: MCP protected resource metadata, OAuth authorization-server metadata, PKCE S256 authorization code/refresh token, ChatGPT client ID metadata document checks. ChatGPT owner connection requires explicit user authorization.
-- `GET /api/health` is public and only checks D1 connectivity. No memory data is exposed publicly.
-- Personal data API and `/mcp` reject anonymous requests. Bearer tokens are stored as SHA-256 hashes in D1.
-- Archive/delete retains a revisioned audit trail. Concurrent writes require `expected_revision`; history uses database triggers.
-- Retrieval is **lexical**, including Thai character n-grams. Summaries are evidence-linked excerpts, not a separately reasoning AI.
+- Worker and web UI: https://go-together.pureekangraw.workers.dev
+- MCP: https://go-together.pureekangraw.workers.dev/mcp
+- Data: dedicated Cloudflare D1 database `go-together` (`DB`); never modify `picxie`.
+- Identity is verified **once** by Cloudflare Access for the entire `go-together` Worker. Allowed owner email is pinned in Access policy and `OWNER_EMAIL` config. The Worker checks only Access's verified identity (audience + owner email) before running GO's request.
+- The intended OAuth provider is **Cloudflare Access Managed OAuth**. ChatGPT's existing GO-Together private plugin uses DCR and no additional per-tool permission scopes. No homegrown OAuth issuer, local tokens, per-tool reapproval, or GO-specific login account.
+- Manual web UI and MCP both reach the same Intake operations after owner identity succeeds. Intake validates inputs, revisions, evidence, and database integrity; it does not authorize or judge GO.
+- Archive/delete preserves revision history; concurrent writes use `expected_revision` and database audit triggers. Retrieval is lexical, including Thai n-grams; snippets are not independent AI conclusions.
+- **Deployment acceptance remains pending until Cloudflare Access protects the whole Worker with Managed OAuth and ChatGPT finishes interactive owner login.** A successful Wrangler deployment by itself does not establish OAuth functionality.
+
+### Required Cloudflare Access configuration
+
+Edit the existing **GO-Together Owner Login** Access application; **replace** its former `/auth` public-path destination with the `go-together` Worker destination (production traffic). Keep the owner-email-only policy, and enable **Managed OAuth** with DCR limited to ChatGPT callback URLs. Do not create an extra Access application or bypass policy. After the edge configuration is saved, verify an unauthenticated `/mcp` request receives the Access OAuth challenge, then complete ChatGPT login and run `brain_list` and a safe create/readback/delete test.
 
 ## Owner API
 

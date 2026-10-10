@@ -1,3 +1,4 @@
+import { createOAuthHandler, verifyAccessToken } from './mcp-oauth.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
 const ORIGIN='https://go-together.pureekangraw.workers.dev';
 const RESOURCE=ORIGIN+'/mcp';
@@ -171,7 +172,28 @@ async function signedAccessOwner(req,env){
   return true;
  }catch{return ownerReject('jwt_validation_exception');}
 }
+
+// GO Brain OAuth is independent from Metropolis. OAuth secrets are Worker secrets.
+function oauthConfig(env){
+ const issuer=ORIGIN, ownerId=String(env.BRAIN_OWNER_ID||'BIG').trim();
+ const ledger={
+  async consume(key,expiresAt){const now=Math.floor(Date.now()/1000);await env.DB.prepare('DELETE FROM oauth_ledger WHERE expires_at < ?').bind(now).run();return (await env.DB.prepare('INSERT OR IGNORE INTO oauth_ledger (key,value,expires_at) VALUES (?,?,?)').bind('used:'+key,'1',expiresAt).run()).meta?.changes===1;},
+  async blocked(key,now){const row=await env.DB.prepare('SELECT value FROM oauth_ledger WHERE key=? AND expires_at>?').bind('attempt:'+key,now).first();return (JSON.parse(row?.value||'[]').filter(t=>now-t<900)).length>=5;},
+  async failure(key,now){const k='attempt:'+key;const row=await env.DB.prepare('SELECT value FROM oauth_ledger WHERE key=?').bind(k).first();const times=[...JSON.parse(row?.value||'[]').filter(t=>now-t<900),now];await env.DB.prepare('INSERT INTO oauth_ledger (key,value,expires_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,expires_at=excluded.expires_at').bind(k,JSON.stringify(times),now+900).run();},
+  async refreshFamilyRevoked(familyId){const row=await env.DB.prepare('SELECT value FROM oauth_ledger WHERE key=?').bind('revoked:'+familyId).first();return Boolean(row);},
+  async revokeRefreshFamily(familyId,expiresAt){await env.DB.prepare('INSERT OR REPLACE INTO oauth_ledger (key,value,expires_at) VALUES (?,?,?)').bind('revoked:'+familyId,'1',expiresAt).run();}
+ };
+ return {issuer,resource:RESOURCE,signingKey:env.BRAIN_OAUTH_SIGNING_KEY,ownerPasscode:env.BRAIN_OWNER_PASSCODE,ownerId,clients:[],allowCimd:true,ledger};
+}
+async function oauthOwner(req,env){
+ try{
+  const identity=await verifyAccessToken(req,{...oauthConfig(env),requireClientId:true});
+  return identity.subject==='GO'||identity.subject===String(env.BRAIN_OWNER_ID||'BIG');
+ }catch{return false;}
+}
+
 async function owner(req,env,ctx){
+ if(await oauthOwner(req,env))return true;
  if(ctx?.access?.aud===env.ACCESS_AUD){
   try{
    const identity=await ctx.access.getIdentity();
@@ -188,6 +210,7 @@ async function owner(req,env,ctx){
 }
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:'owner-only'},v?.healthy===1?200:503);}
+if(p.startsWith('/oauth/')||p.startsWith('/.well-known/'))return createOAuthHandler(oauthConfig(env))(req);
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');
 if(p==='/mcp')return mcp(req,env,ctx);
 if(p.startsWith('/api/'))return api(req,env,url,ctx);

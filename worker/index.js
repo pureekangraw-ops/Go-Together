@@ -125,42 +125,64 @@ async function mcp(req,env,ctx){
  }
  return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});
 }
+// Cloudflare Managed OAuth authenticates at the edge. The Asset router may
+// strip ctx.access but preserves the Access-signed identity JWT header.
+// No token content, user identity, or untrusted claim values are ever logged.
 let accessJwks=null,accessJwksAt=0;
-function decodeJwtPart(v){const padded=v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=');return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));}
+function ownerReject(stage){
+ console.warn('go_brain_owner_verification',JSON.stringify({verified:false,stage}));
+ return false;
+}
+function decodeJwtPart(v){
+ const padded=v.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(v.length/4)*4,'=');
+ return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));
+}
 async function signedAccessOwner(req,env){
  const jwt=req.headers.get('Cf-Access-Jwt-Assertion')||'';
- if(!jwt||jwt.length>16384||!env.ACCESS_TEAM_DOMAIN||!env.ACCESS_AUD||!env.OWNER_EMAIL)return false;
+ if(!jwt)return ownerReject('jwt_missing');
+ if(jwt.length>16384)return ownerReject('jwt_oversize');
+ if(!env.ACCESS_TEAM_DOMAIN||!env.ACCESS_AUD||!env.OWNER_EMAIL)return ownerReject('config_missing');
  const parts=jwt.split('.');
- if(parts.length!==3)return false;
+ if(parts.length!==3)return ownerReject('jwt_format');
  try{
   const header=JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[0])));
   const claims=JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[1])));
   const now=Math.floor(Date.now()/1000);
-  if(header.alg!=='RS256'||typeof header.kid!=='string'||!header.kid)return false;
-  if(claims.iss!=='https://'+env.ACCESS_TEAM_DOMAIN||!([].concat(claims.aud||[]).includes(env.ACCESS_AUD)))return false;
-  if(typeof claims.email!=='string'||claims.email.toLowerCase()!==env.OWNER_EMAIL.toLowerCase())return false;
-  if(!Number.isFinite(claims.exp)||claims.exp<=now||(claims.nbf&&claims.nbf>now))return false;
+  const issuer='https://'+env.ACCESS_TEAM_DOMAIN.replace(/^https?:\/\//,'').replace(/\/+$/,'');
+  if(header.alg!=='RS256'||typeof header.kid!=='string'||!header.kid)return ownerReject('jwt_algorithm');
+  if(claims.iss!==issuer)return ownerReject('issuer_mismatch');
+  if(!([].concat(claims.aud||[]).includes(env.ACCESS_AUD)))return ownerReject('audience_mismatch');
+  if(typeof claims.email!=='string'||claims.email.toLowerCase()!==env.OWNER_EMAIL.toLowerCase())return ownerReject('owner_mismatch');
+  if(!Number.isFinite(claims.exp)||claims.exp<=now||(claims.nbf&&claims.nbf>now))return ownerReject('jwt_expired_or_early');
   let key=accessJwks?.keys?.find(k=>k.kid===header.kid);
   if(!key||Date.now()-accessJwksAt>300000){
-   const res=await fetch('https://'+env.ACCESS_TEAM_DOMAIN+'/cdn-cgi/access/certs',{redirect:'error'});
-   if(!res.ok)return false;
+   const res=await fetch(issuer+'/cdn-cgi/access/certs',{redirect:'error'});
+   if(!res.ok)return ownerReject('jwks_fetch_failed');
    const jwks=await res.json();
-   if(!Array.isArray(jwks?.keys))return false;
+   if(!Array.isArray(jwks?.keys))return ownerReject('jwks_invalid');
    accessJwks=jwks;accessJwksAt=Date.now();
    key=jwks.keys.find(k=>k.kid===header.kid);
   }
-  if(!key)return false;
+  if(!key)return ownerReject('jwt_key_not_found');
   const publicKey=await crypto.subtle.importKey('jwk',key,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
-  return await crypto.subtle.verify('RSASSA-PKCS1-v1_5',publicKey,decodeJwtPart(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
- }catch{return false;}
+  const ok=await crypto.subtle.verify('RSASSA-PKCS1-v1_5',publicKey,decodeJwtPart(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
+  if(!ok)return ownerReject('signature_invalid');
+  console.info('go_brain_owner_verification',JSON.stringify({verified:true,mode:'signed_access_jwt'}));
+  return true;
+ }catch{return ownerReject('jwt_validation_exception');}
 }
 async function owner(req,env,ctx){
- if(ctx?.access){
-  if(ctx.access.aud!==env.ACCESS_AUD)return false;
+ if(ctx?.access?.aud===env.ACCESS_AUD){
   try{
    const identity=await ctx.access.getIdentity();
-   if(identity?.email)return identity.email.toLowerCase()===env.OWNER_EMAIL?.toLowerCase();
-  }catch{}
+   if(identity?.email){
+    if(identity.email.toLowerCase()!==env.OWNER_EMAIL?.toLowerCase())return ownerReject('owner_mismatch');
+    console.info('go_brain_owner_verification',JSON.stringify({verified:true,mode:'trusted_context'}));
+    return true;
+   }
+  }catch{console.warn('go_brain_owner_verification',JSON.stringify({verified:false,stage:'ctx_identity_unavailable'}));}
+ }else if(ctx?.access){
+  console.warn('go_brain_owner_verification',JSON.stringify({verified:false,stage:'ctx_audience_mismatch'}));
  }
  return signedAccessOwner(req,env);
 }

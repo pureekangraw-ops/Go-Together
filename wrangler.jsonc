@@ -7,7 +7,8 @@
   },
   "vars": {
     "ACCESS_AUD": "6b7b2007c1ae1b5e9215681bc94fd1b41edf3c6d4c87d3afebda01afd69c2dc8",
-    "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com"
+    "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com",
+    "OWNER_EMAIL": "pureekangraw@gmail.com"
   },
   "assets": {
     "directory": "./static",

@@ -15,10 +15,10 @@
 <body>
 <main class="app">
   <header class="topbar">
-    <div class="brand"><div class="mark" aria-hidden="true">✳</div><div><h1>GO-Together</h1><p>Personal Brain · Prototype v0.1</p></div></div>
+    <div class="brand"><div class="mark" aria-hidden="true">✳</div><div><h1>GO-Together</h1><p>Personal Brain · Owner Workspace</p></div></div>
     <div class="local"><span class="dot" aria-hidden="true"></span><span>Cloudflare · Private D1</span></div>
   </header>
-  <p><a href="/auth/login" style="display:inline-block;padding:9px 14px;background:#2783de;color:white;border-radius:8px;text-decoration:none">Sign in as owner</a> · <small>Sign in before saving or searching your personal memory.</small></p>
+  <p><small>Private owner access is verified once by Cloudflare. Intake follows GO instructions.</small></p>
   <section class="intro"><h2>Knowledge that stays useful.</h2><p>Keep identity, skills, and work-earned lessons together. Link memories to evidence, review what changed, and retrieve relevant notes when work returns.</p></section>
   <section class="stats" aria-label="Memory counts">
     <div class="stat"><span>Active memories</span><strong id="stat-active">0</strong></div>
@@ -33,7 +33,7 @@
     <button id="new-btn" class="primary" type="button">＋ New memory</button>
   </section>
   <section class="grid">
-    <div class="panel" aria-label="Memory list"><div class="panel-head"><h3>Memory library</h3><span class="count" id="list-count">0 items</span></div><div class="list" id="list" role="list"><div class="empty"><strong>Loading memory</strong>Connecting to the local store…</div></div></div>
+    <div class="panel" aria-label="Memory list"><div class="panel-head"><h3>Memory library</h3><span class="count" id="list-count">0 items</span></div><div class="list" id="list" role="list"><div class="empty"><strong>Loading memory</strong>Connecting to Cloudflare D1…</div></div></div>
     <div class="panel" aria-label="Memory editor"><div class="panel-head"><h3 id="form-heading">Create a memory</h3><span class="count" id="form-mode">New entry</span></div><div class="editor">
       <form id="memory-form">
         <input id="memory-id" type="hidden">
@@ -68,7 +68,7 @@ async function refresh(){
   const status=$("status-filter").value, kind=$("kind-filter").value, q=$("search").value.trim();
   const p=new URLSearchParams({status, ...(kind?{kind}:{}), ...(q?{q}:{})});
   try{const d=await api(`/api/memories?${p}`);items=d.items;renderList();await stats();}
-  catch(e){$("list").innerHTML=`<div class="empty"><strong>Could not load the local store</strong>${esc(e.message)}<br>Sign in with the owner login link above.</div>`;}
+  catch(e){$("list").innerHTML=`<div class="empty"><strong>Could not load private memory</strong>${esc(e.message)}<br>Sign in with the owner login link above.</div>`;}
 }
 function renderList(){
   $("list-count").textContent=`${items.length} ${items.length===1?"item":"items"}`;

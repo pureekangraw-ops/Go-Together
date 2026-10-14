@@ -28,5 +28,11 @@
       "database_name": "go-together",
       "database_id": "b236c05f-e07f-498b-a9d5-ccefe8be5f22"
     }
+  ],
+  "services": [
+    {
+      "binding": "PANTHEON",
+      "service": "phatheon-workhub"
+    }
   ]
 }

@@ -7,6 +7,12 @@ on:
       - 'worker/**'
       - 'tests/**'
       - '.github/workflows/go-together-tests.yml'
+  pull_request:
+    paths:
+      - 'worker/**'
+      - 'tests/**'
+      - 'wrangler.jsonc'
+      - '.github/workflows/go-together-tests.yml'
   workflow_dispatch:
 
 permissions:

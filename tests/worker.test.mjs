@@ -59,3 +59,31 @@ test('Cloudflare signed JWT works when ctx.access is missing',async()=>{
   assert.equal((await call({...valid,exp:now-1})).status,401);
  }finally{globalThis.fetch=oldFetch;}
 });
+
+
+test('PANTHEON health tool is discoverable but does not expose task actions',async()=>{
+ const r=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:8,method:'tools/list'})}),env,ownerContext);
+ const names=(await r.json()).result.tools.map(t=>t.name);
+ assert.ok(names.includes('pantheon_health'));
+ assert.ok(!names.includes('pantheon_create_task'));
+});
+const pantheonCall=(e,ctx=ownerContext,args={})=>worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:83,method:'tools/call',params:{name:'pantheon_health',arguments:args}})}),e,ctx);
+test('PANTHEON health cannot be called anonymously',async()=>{
+ const r=await pantheonCall(env,{});assert.equal(r.status,401);
+});
+test('PANTHEON health fails closed without service binding',async()=>{
+ const r=await pantheonCall(env);assert.equal(r.status,200);
+ const v=JSON.parse((await r.json()).result.content[0].text);
+ assert.deepEqual(v,{connected:false,status:'NOT_CONFIGURED',read_only:true});
+});
+test('PANTHEON health reads fixed internal route and redacts extra fields',async()=>{
+ let path='';const e={...env,PANTHEON:{fetch:async request=>{path=new URL(request.url).pathname;return Response.json({ok:true,service:'pantheon-workhub',stage:'primary-preview',secret:'must-not-leak',factory:{connection:'CONNECTED',station_status:'READY',rail_status:'READY',work_token:'nope'}});}}};
+ const r=await pantheonCall(e);const v=JSON.parse((await r.json()).result.content[0].text);
+ assert.equal(path,'/health');assert.equal(v.connected,true);assert.equal(v.read_only,true);assert.equal(v.factory.station_status,'READY');assert.equal(v.secret,undefined);assert.equal(v.factory.work_token,undefined);
+});
+test('PANTHEON health rejects unexpected tool parameters and upstream errors',async()=>{
+ const r=await pantheonCall({...env,PANTHEON:{fetch:async()=>new Response('unavailable',{status:503})}},ownerContext,{token:'should-not-forward'});
+ assert.equal((await r.json()).result.isError,true);
+ const r2=await pantheonCall({...env,PANTHEON:{fetch:async()=>new Response('unavailable',{status:503})}});
+ const v=JSON.parse((await r2.json()).result.content[0].text);assert.equal(v.connected,false);assert.equal(v.upstream_status,503);
+});

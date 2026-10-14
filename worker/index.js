@@ -85,8 +85,22 @@ const tools=[
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])}
+{name:'pantheon_health',description:'Read PANTHEON WorkHub health through an optional internal Service Binding. No task execution.',inputSchema:SCHEMA({})},
 ];
-async function toolCall(name,a,d){if(!a||typeof a!=='object')a={};
+
+async function pantheonHealth(env){
+ if(!env?.PANTHEON||typeof env.PANTHEON.fetch!=='function')return {connected:false,status:'NOT_CONFIGURED',read_only:true};
+ try{
+  const res=await env.PANTHEON.fetch(new Request('https://phatheon-workhub.pureekangraw.workers.dev/health',{method:'GET'}));
+  if(!res.ok)return {connected:false,status:'UPSTREAM_HTTP_ERROR',upstream_status:res.status,read_only:true};
+  const value=await res.json();
+  if(value?.ok!==true||value?.service!=='pantheon-workhub')return {connected:false,status:'INVALID_UPSTREAM_RESPONSE',read_only:true};
+  const factory=value.factory;
+  return {connected:true,status:'HEALTHY',service:'pantheon-workhub',stage:typeof value.stage==='string'?value.stage:null,read_only:true,source:'PANTHEON /health',factory:factory&&typeof factory==='object'?{connection:factory.connection??null,station_status:factory.station_status??null,rail_status:factory.rail_status??null}:null};
+ }catch{return {connected:false,status:'UPSTREAM_UNAVAILABLE',read_only:true};}
+}
+async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
+if(name==='pantheon_health'){restrict(a,[]);return pantheonHealth(env);}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};
@@ -121,7 +135,7 @@ async function mcp(req,env,ctx){
   const name=x.params?.name,a=x.params?.arguments||{};
   if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
   try{
-   const value=await toolCall(name,a,env.DB);
+   const value=await toolCall(name,a,env.DB,env);
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:JSON.stringify(value)}]},isModern);
   }catch(e){
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:e.message}],isError:true},isModern);

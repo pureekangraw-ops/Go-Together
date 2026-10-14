@@ -90,7 +90,7 @@ const tools=[
 {name:'cloudflare_worker',description:'Read deployment metadata for one Cloudflare Worker; read only.',inputSchema:SCHEMA({script:Q},['script'])},
 {name:'github_repo',description:'Read metadata of a GitHub repository using the configured GitHub token; read only.',inputSchema:SCHEMA({repo:Q},['repo'])},
 {name:'github_file',description:'Read a UTF-8 file from a GitHub repository; read only. File must be under 100 KB.',inputSchema:SCHEMA({repo:Q,path:Q,ref:Q},['repo','path'])},
-{name:'pantheon_tasks',description:'List existing PANTHEON tasks through the existing WorkHub service; read only.',inputSchema:SCHEMA({})},
+{name:'pantheon_tasks',description:'List PANTHEON tasks or read one exact task by task_id; read only.',inputSchema:SCHEMA({task_id:Q})},
 {name:'pantheon_command',description:'Submit an explicit owner instruction to PANTHEON WorkHub; the WorkHub enforces its own approval and dispatch rules. Does not bypass queue or authorization.',inputSchema:SCHEMA({request:Q},['request'])},
 ];
 
@@ -110,13 +110,14 @@ async function pantheonRequest(env, payload){
  if(typeof env.WORKHUB_TOKEN!=='string'||env.WORKHUB_TOKEN.length<32)return {ok:false,status:'UPSTREAM_AUTH_NOT_CONFIGURED'};
  try{
   const res=await env.PANTHEON.fetch(new Request('https://phatheon-workhub.pureekangraw.workers.dev/v1/intent',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+env.WORKHUB_TOKEN},body:JSON.stringify(payload)}));
-  const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{data={error:'INVALID_UPSTREAM_RESPONSE'}};
+  const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{return {ok:false,status:'INVALID_UPSTREAM_RESPONSE',upstream_status:res.status};}
+  if(!data||typeof data!=='object'||Array.isArray(data))return {ok:false,status:'INVALID_UPSTREAM_RESPONSE',upstream_status:res.status};
   return {ok:res.ok,upstream_status:res.status,result:data};
  }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE'};}
 }
 async function githubRead(env,repo,path,ref){
  if(typeof env.GITHUB_TOKEN!=='string'||!env.GITHUB_TOKEN.trim())return {ok:false,status:'GITHUB_NOT_CONFIGURED'};
- if(typeof repo!=='string'||!/^[-\\w.]+\\/[-\\w.]+$/.test(repo))throw new Bad(400,'invalid_repo');
+ if(typeof repo!=='string'||!/^[-\w.]+\/[-\w.]+$/.test(repo))throw new Bad(400,'invalid_repo');
  if(path!==null&&(typeof path!=='string'||!path||path.startsWith('/')||path.split('/').includes('..')||path.length>300))throw new Bad(400,'invalid_path');
  if(ref!==undefined&&(typeof ref!=='string'||ref.length>120))throw new Bad(400,'invalid_ref');
  const suffix=path===null?'':('/contents/'+path.split('/').map(encodeURIComponent).join('/'));
@@ -146,8 +147,8 @@ if(name==='cloudflare_workers'){restrict(a,[]);return cloudflareRead(env,null);}
 if(name==='cloudflare_worker'){restrict(a,['script']);return cloudflareRead(env,a.script);}
 if(name==='github_repo'){restrict(a,['repo']);return githubRead(env,a.repo,null);}
 if(name==='github_file'){restrict(a,['repo','path','ref']);return githubRead(env,a.repo,a.path,a.ref);}
-if(name==='pantheon_tasks'){restrict(a,[]);return pantheonRequest(env,{intent:'LIST_TASKS'});}
-if(name==='pantheon_command'){restrict(a,['request']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');return pantheonRequest(env,{request:a.request.trim()});}
+if(name==='pantheon_tasks'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{intent:'SHOW_TASK',task_id:a.task_id});}return pantheonRequest(env,{intent:'LIST_TASKS'});}
+if(name==='pantheon_command'){restrict(a,['request']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');return pantheonRequest(env,{intent:'CREATE_TASK',request:a.request.trim()});}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};
@@ -262,3 +263,4 @@ if(p==='/mcp')return await mcp(req,env,ctx);
 if(p.startsWith('/api/'))return await api(req,env,url,ctx);
 return env.ASSETS.fetch(req);
 }catch(e){if(e instanceof Bad)return error(e.status,e.message);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};
+

@@ -1,6 +1,82 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.js';
+test('GO uses internal owner bridge with no copied WorkHub token',async()=>{
+ let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result:{tasks:[]}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_tasks'));
+ assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'intent',payload:{intent:'LIST_TASKS'}});
+});
+test('GO queues Factory work only through owner bridge',async()=>{
+ let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:201,result:{task_id:'task_'+'c'.repeat(32),executed:false}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_command',{operation:'queue_factory',request:'bench test'}));
+ assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'queue_factory',request:'bench test'});
+});
+test('GO requires explicit approved=true for dispatch and denies anonymous RPC',async()=>{
+ let calls=0;const task_id='task_'+'d'.repeat(32);
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{calls++;return {ok:true,upstream_status:200,result:{task_id:a.task_id}};}}};
+ const bad=await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id});
+ assert.equal((await bad.json()).result.isError,true);assert.equal(calls,0);
+ assert.equal((await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id,approved:true},{})).status,401);
+ assert.equal(calls,0);
+ const good=await commandValue(await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id,approved:true}));
+ assert.equal(good.ok,true);assert.equal(calls,1);
+});
+test('GO reads exact Factory job receipt via bridge',async()=>{
+ let sent;const task_id='task_'+'e'.repeat(32);
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result:{job:{task_id}}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_factory',{task_id}));
+ assert.deepEqual(sent,{operation:'factory_job',task_id});assert.equal(v.result.job.task_id,task_id);
+});
+const commandCall=(e,name,args={},ctx=ownerContext)=>worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:84,method:'tools/call',params:{name,arguments:args}})}),e,ctx);
+const commandValue=async r=>JSON.parse((await r.json()).result.content[0].text);
+test('PANTHEON command sends CREATE_TASK envelope and returns queued receipt',async()=>{
+ let payload;
+ const task_id='task_'+'a'.repeat(32);
+ const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async req=>{
+  payload=await req.json();
+  assert.equal(req.method,'POST');assert.equal(new URL(req.url).pathname,'/v1/intent');
+  assert.equal(req.headers.get('authorization'),'Bearer '+'x'.repeat(32));
+  if(payload.intent!=='CREATE_TASK')return Response.json({error:'unsupported intent'},{status:400});
+  return Response.json({task_id,status:'QUEUED',executed:false},{status:201});
+ }}};
+ const value=await commandValue(await commandCall(e,'pantheon_command',{request:'  integration receipt  '}));
+ assert.deepEqual(payload,{intent:'CREATE_TASK',request:'integration receipt'});
+ assert.equal(value.ok,true);assert.equal(value.result.task_id,task_id);assert.equal(value.result.executed,false);
+});
+test('PANTHEON tasks supports exact SHOW_TASK readback',async()=>{
+ const task_id='task_'+'b'.repeat(32);let payload;
+ const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async req=>{
+  payload=await req.json();return Response.json({task:{task_id,status:'QUEUED'}});
+ }}};
+ const value=await commandValue(await commandCall(e,'pantheon_tasks',{task_id}));
+ assert.deepEqual(payload,{intent:'SHOW_TASK',task_id});
+ assert.equal(value.result.task.task_id,task_id);
+});
+test('PANTHEON malformed JSON cannot report ok on HTTP 200',async()=>{
+ const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async()=>new Response('<html>error</html>')}};
+ const value=await commandValue(await commandCall(e,'pantheon_tasks'));
+ assert.equal(value.ok,false);assert.equal(value.status,'INVALID_UPSTREAM_RESPONSE');
+});
+test('PANTHEON unauthenticated caller cannot create tasks',async()=>{
+ let called=false;const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async()=>{called=true;return Response.json({});}}};
+ assert.equal((await commandCall(e,'pantheon_command',{request:'test'},{})).status,401);
+ assert.equal(called,false);
+});
+test('PANTHEON missing upstream credential fails closed',async()=>{
+ let called=false;const e={...env,PANTHEON:{fetch:async()=>{called=true;return Response.json({});}}};
+ const v=await commandValue(await commandCall(e,'pantheon_command',{request:'test'}));
+ assert.equal(v.status,'UPSTREAM_AUTH_NOT_CONFIGURED');assert.equal(called,false);
+});
+test('PANTHEON LIST_TASKS preserves exact API fields',async()=>{
+ let payload;const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async req=>{payload=await req.json();return Response.json({tasks:[]});}}};
+ const v=await commandValue(await commandCall(e,'pantheon_tasks'));
+ assert.deepEqual(payload,{intent:'LIST_TASKS'});assert.equal(v.ok,true);
+});
+test('PANTHEON rejects malformed Task ID before contacting upstream',async()=>{
+ let called=false;const e={...env,WORKHUB_TOKEN:'x'.repeat(32),PANTHEON:{fetch:async()=>{called=true;return Response.json({});}}};
+ const r=await commandCall(e,'pantheon_tasks',{task_id:'../run'});
+ assert.equal((await r.json()).result.isError,true);assert.equal(called,false);
+});
 const ROOT='https://go-together.pureekangraw.workers.dev';
 const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',DB:{prepare:()=>({first:async()=>({healthy:1})})},ASSETS:{fetch:async()=>new Response('static')}};
 const get=(path)=>worker.fetch(new Request(ROOT+path),env,{});
@@ -87,3 +163,4 @@ test('PANTHEON health rejects unexpected tool parameters and upstream errors',as
  const r2=await pantheonCall({...env,PANTHEON:{fetch:async()=>new Response('unavailable',{status:503})}});
  const v=JSON.parse((await r2.json()).result.content[0].text);assert.equal(v.connected,false);assert.equal(v.upstream_status,503);
 });
+

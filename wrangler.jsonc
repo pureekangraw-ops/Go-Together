@@ -33,6 +33,11 @@
     {
       "binding": "PANTHEON",
       "service": "phatheon-workhub"
+    },
+    {
+      "binding": "PANTHEON_OWNER",
+      "service": "phatheon-workhub",
+      "entrypoint": "OwnerBridge"
     }
   ]
 }

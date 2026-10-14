@@ -103,8 +103,9 @@ async function pantheonHealth(env){
 }
 async function pantheonRequest(env, payload){
  if(!env?.PANTHEON||typeof env.PANTHEON.fetch!=='function')return {ok:false,status:'NOT_CONFIGURED'};
+ if(typeof env.WORKHUB_TOKEN!=='string'||env.WORKHUB_TOKEN.length<32)return {ok:false,status:'UPSTREAM_AUTH_NOT_CONFIGURED'};
  try{
-  const res=await env.PANTHEON.fetch(new Request('https://phatheon-workhub.pureekangraw.workers.dev/v1/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}));
+  const res=await env.PANTHEON.fetch(new Request('https://phatheon-workhub.pureekangraw.workers.dev/v1/intent',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+env.WORKHUB_TOKEN},body:JSON.stringify(payload)}));
   const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{data={error:'INVALID_UPSTREAM_RESPONSE'}};
   return {ok:res.ok,upstream_status:res.status,result:data};
  }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE'};}

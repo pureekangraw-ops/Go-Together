@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maps Routes"
+  short_description: "Find real places, coordinates and routes, or help build map"
+  default_prompt: "Use $maps-routes for the requested GO-Together Bridge workflow."

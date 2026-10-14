@@ -1,0 +1,4 @@
+interface:
+  display_name: "Website Builder"
+  short_description: "Plan, design and help build mobile-friendly websites, landin"
+  default_prompt: "Use $website-builder for the requested GO-Together Bridge workflow."

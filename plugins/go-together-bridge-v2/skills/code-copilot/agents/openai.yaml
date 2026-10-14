@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Copilot"
+  short_description: "Analyze, create, review, fix and validate code with authoriz"
+  default_prompt: "Use $code-copilot for the requested GO-Together Bridge workflow."

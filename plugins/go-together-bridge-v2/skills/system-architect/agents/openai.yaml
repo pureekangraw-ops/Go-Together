@@ -1,0 +1,4 @@
+interface:
+  display_name: "System Architect"
+  short_description: "Design system architecture and Mermaid diagrams; inspect API"
+  default_prompt: "Use $system-architect for the requested GO-Together Bridge workflow."

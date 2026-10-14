@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web App Builder"
+  short_description: "Design and develop web applications such as dashboards, task"
+  default_prompt: "Use $web-app-builder for the requested GO-Together Bridge workflow."

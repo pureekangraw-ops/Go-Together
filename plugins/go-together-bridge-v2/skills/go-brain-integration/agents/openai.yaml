@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Brain Integration"
+  short_description: "Search, retrieve, save and update shared GO Brain project co"
+  default_prompt: "Use $go-brain-integration for the requested GO-Together Bridge workflow."

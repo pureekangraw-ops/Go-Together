@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.js';
+test('GO uses internal owner bridge with no copied WorkHub token',async()=>{
+ let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result:{tasks:[]}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_tasks'));
+ assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'intent',payload:{intent:'LIST_TASKS'}});
+});
+test('GO queues Factory work only through owner bridge',async()=>{
+ let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:201,result:{task_id:'task_'+'c'.repeat(32),executed:false}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_command',{operation:'queue_factory',request:'bench test'}));
+ assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'queue_factory',request:'bench test'});
+});
+test('GO requires explicit approved=true for dispatch and denies anonymous RPC',async()=>{
+ let calls=0;const task_id='task_'+'d'.repeat(32);
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{calls++;return {ok:true,upstream_status:200,result:{task_id:a.task_id}};}}};
+ const bad=await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id});
+ assert.equal((await bad.json()).result.isError,true);assert.equal(calls,0);
+ assert.equal((await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id,approved:true},{})).status,401);
+ assert.equal(calls,0);
+ const good=await commandValue(await commandCall(e,'pantheon_command',{operation:'dispatch_factory',task_id,approved:true}));
+ assert.equal(good.ok,true);assert.equal(calls,1);
+});
+test('GO reads exact Factory job receipt via bridge',async()=>{
+ let sent;const task_id='task_'+'e'.repeat(32);
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result:{job:{task_id}}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_factory',{task_id}));
+ assert.deepEqual(sent,{operation:'factory_job',task_id});assert.equal(v.result.job.task_id,task_id);
+});
 const commandCall=(e,name,args={},ctx=ownerContext)=>worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:84,method:'tools/call',params:{name,arguments:args}})}),e,ctx);
 const commandValue=async r=>JSON.parse((await r.json()).result.content[0].text);
 test('PANTHEON command sends CREATE_TASK envelope and returns queued receipt',async()=>{

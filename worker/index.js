@@ -91,7 +91,8 @@ const tools=[
 {name:'github_repo',description:'Read metadata of a GitHub repository using the configured GitHub token; read only.',inputSchema:SCHEMA({repo:Q},['repo'])},
 {name:'github_file',description:'Read a UTF-8 file from a GitHub repository; read only. File must be under 100 KB.',inputSchema:SCHEMA({repo:Q,path:Q,ref:Q},['repo','path'])},
 {name:'pantheon_tasks',description:'List PANTHEON tasks or read one exact task by task_id; read only.',inputSchema:SCHEMA({task_id:Q})},
-{name:'pantheon_command',description:'Submit an explicit owner instruction to PANTHEON WorkHub; the WorkHub enforces its own approval and dispatch rules. Does not bypass queue or authorization.',inputSchema:SCHEMA({request:Q},['request'])},
+{name:'pantheon_command',description:'Create a WorkHub task (default create_task), queue_factory, dispatch_factory or reconcile_factory. Factory dispatch/reconciliation requires explicit owner approval approved=true and an existing task_id. Queuing never executes work.',inputSchema:SCHEMA({request:Q,operation:{type:'string',enum:['create_task','queue_factory','dispatch_factory','reconcile_factory']},task_id:Q,approved:{type:'boolean'}})},
+{name:'pantheon_factory',description:'Read Factory connection health or an exact WorkHub Factory job and its verified receipt; read only.',inputSchema:SCHEMA({task_id:Q})},
 ];
 
 async function pantheonHealth(env){
@@ -105,7 +106,16 @@ async function pantheonHealth(env){
   return {connected:true,status:'HEALTHY',service:'pantheon-workhub',stage:typeof value.stage==='string'?value.stage:null,read_only:true,source:'PANTHEON /health',factory:factory&&typeof factory==='object'?{connection:factory.connection??null,station_status:factory.station_status??null,rail_status:factory.rail_status??null}:null};
  }catch{return {connected:false,status:'UPSTREAM_UNAVAILABLE',read_only:true};}
 }
-async function pantheonRequest(env, payload){
+async function pantheonRequest(env, payload, operation='intent'){
+ if(env?.PANTHEON_OWNER&&typeof env.PANTHEON_OWNER.ownerCall==='function'){
+  try{
+   const args=operation==='intent'?{operation,payload}:{operation,...payload};
+   const v=await env.PANTHEON_OWNER.ownerCall(args);
+   if(!v||typeof v!=='object'||typeof v.ok!=='boolean')return {ok:false,status:'INVALID_UPSTREAM_RESPONSE'};
+   return v;
+  }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE'};}
+ }
+ if(operation!=='intent')return {ok:false,status:'INTERNAL_BRIDGE_NOT_CONFIGURED'};
  if(!env?.PANTHEON||typeof env.PANTHEON.fetch!=='function')return {ok:false,status:'NOT_CONFIGURED'};
  if(typeof env.WORKHUB_TOKEN!=='string'||env.WORKHUB_TOKEN.length<32)return {ok:false,status:'UPSTREAM_AUTH_NOT_CONFIGURED'};
  try{
@@ -148,7 +158,20 @@ if(name==='cloudflare_worker'){restrict(a,['script']);return cloudflareRead(env,
 if(name==='github_repo'){restrict(a,['repo']);return githubRead(env,a.repo,null);}
 if(name==='github_file'){restrict(a,['repo','path','ref']);return githubRead(env,a.repo,a.path,a.ref);}
 if(name==='pantheon_tasks'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{intent:'SHOW_TASK',task_id:a.task_id});}return pantheonRequest(env,{intent:'LIST_TASKS'});}
-if(name==='pantheon_command'){restrict(a,['request']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');return pantheonRequest(env,{intent:'CREATE_TASK',request:a.request.trim()});}
+if(name==='pantheon_command'){
+ restrict(a,['request','operation','task_id','approved']);const op=a.operation??'create_task';
+ if(op==='create_task'||op==='queue_factory'){
+  restrict(a,['request','operation']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');
+  return op==='create_task'?pantheonRequest(env,{intent:'CREATE_TASK',request:a.request.trim()}):pantheonRequest(env,{request:a.request.trim()},op);
+ }
+ if(op==='dispatch_factory'||op==='reconcile_factory'){
+  restrict(a,['operation','task_id','approved']);if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');
+  if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');
+  return pantheonRequest(env,{task_id:a.task_id,approved:true},op);
+ }
+ throw new Bad(400,'invalid_operation');
+}
+if(name==='pantheon_factory'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{task_id:a.task_id},'factory_job');}return pantheonRequest(env,{},'factory_health');}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

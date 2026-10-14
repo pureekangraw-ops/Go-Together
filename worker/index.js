@@ -86,6 +86,8 @@ const tools=[
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'pantheon_health',description:'Read PANTHEON WorkHub health through an optional internal Service Binding. No task execution.',inputSchema:SCHEMA({})},
+{name:'cloudflare_workers',description:'List Workers scripts in the configured Cloudflare account; read only.',inputSchema:SCHEMA({})},
+{name:'cloudflare_worker',description:'Read deployment metadata for one Cloudflare Worker; read only.',inputSchema:SCHEMA({script:Q},['script'])},
 {name:'github_repo',description:'Read metadata of a GitHub repository using the configured GitHub token; read only.',inputSchema:SCHEMA({repo:Q},['repo'])},
 {name:'github_file',description:'Read a UTF-8 file from a GitHub repository; read only. File must be under 100 KB.',inputSchema:SCHEMA({repo:Q,path:Q,ref:Q},['repo','path'])},
 {name:'pantheon_tasks',description:'List existing PANTHEON tasks through the existing WorkHub service; read only.',inputSchema:SCHEMA({})},
@@ -127,8 +129,21 @@ async function githubRead(env,repo,path,ref){
   return {ok:true,path:data.path,sha:data.sha,size:data.size,encoding:data.encoding,content:data.content};
  }catch{return {ok:false,status:'GITHUB_UNAVAILABLE'};}
 }
+async function cloudflareRead(env,script){
+ if(typeof env.CLOUDFLARE_API_TOKEN!=='string'||!env.CLOUDFLARE_API_TOKEN.trim()||typeof env.CLOUDFLARE_ACCOUNT_ID!=='string'||!/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID))return {ok:false,status:'CLOUDFLARE_NOT_CONFIGURED'};
+ if(script!==null&&(typeof script!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(script)))throw new Bad(400,'invalid_script');
+ const suffix=script===null?'':'/'+encodeURIComponent(script)+'/deployments';
+ try{
+  const res=await fetch('https://api.cloudflare.com/client/v4/accounts/'+env.CLOUDFLARE_ACCOUNT_ID+'/workers/scripts'+suffix,{headers:{authorization:'Bearer '+env.CLOUDFLARE_API_TOKEN,accept:'application/json'},signal:AbortSignal.timeout(10000)});
+  const data=await res.json();if(!res.ok||data.success!==true)return {ok:false,upstream_status:res.status,status:'CLOUDFLARE_API_ERROR',errors:data.errors||[]};
+  if(script===null)return {ok:true,scripts:(Array.isArray(data.result)?data.result:[]).map(x=>({id:x.id,modified_on:x.modified_on})).slice(0,100)};
+  return {ok:true,script,deployments:(Array.isArray(data.result?.deployments)?data.result.deployments:[]).slice(0,10)};
+ }catch{return {ok:false,status:'CLOUDFLARE_UNAVAILABLE'};}
+}
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
 if(name==='pantheon_health'){restrict(a,[]);return pantheonHealth(env);}
+if(name==='cloudflare_workers'){restrict(a,[]);return cloudflareRead(env,null);}
+if(name==='cloudflare_worker'){restrict(a,['script']);return cloudflareRead(env,a.script);}
 if(name==='github_repo'){restrict(a,['repo']);return githubRead(env,a.repo,null);}
 if(name==='github_file'){restrict(a,['repo','path','ref']);return githubRead(env,a.repo,a.path,a.ref);}
 if(name==='pantheon_tasks'){restrict(a,[]);return pantheonRequest(env,{intent:'LIST_TASKS'});}

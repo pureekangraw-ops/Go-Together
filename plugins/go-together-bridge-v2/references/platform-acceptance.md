@@ -1,0 +1,9 @@
+# Acceptance gates
+
+Keep Web, Android native ChatGPT and mobile browser distinct. Test before installation as requested by BIG. Account package creation is separate from installation. Do not install or claim compatibility solely from archive validation.
+
+For each host capture host/version, date/time, plugin selection or @mention availability, authentication, tool discovery, GO Brain exact-record read, authorized synthetic write/readback/history, rejected unauthorized write/read, stale revision protection, provider UI behavior and invocation from an independent ordinary ChatGPT room. Preserve original records and archive synthetic fixtures. Record expected/observed behavior and first unverified boundary. Do not use mocked tokens or a narrow desktop viewport as Android evidence.
+
+PANTHEON continuity test: search PANTHEON, retrieve record a08908c4-8689-4ed5-a93d-5807fd842ef7 (if still present), compare its actual revision/source/time in a second room. Do not copy old status into a new claim of deployment. Website/web-app test: create a minimal responsive task app with available builder and test add/remove/filter, errors and layout. Maps test: query a real named place and a route using connected provider; confirm coordinates/ETA match the returned source and missing-provider responses contain no invented facts. Scope test: read-only credential reads successfully and writes fail; owner write succeeds. Current brain-owner alone cannot pass the scope test.
+
+If Android plugin selection/MCP fails, offer the existing authenticated web UI https://go-together.pureekangraw.workers.dev in a mobile browser. It uses the same Brain backend according to source. Mobile login/rendering and live reads still require actual-device acceptance. Never introduce a second knowledge store or a public credential proxy to work around host support.

@@ -1,0 +1,25 @@
+{
+  "name": "go-together-bridge-v2",
+  "version": "2.0.0",
+  "description": "Capability-aware development skills connected to the existing GO Brain. Host compatibility and fine-grained scopes pending verification.",
+  "author": {
+    "name": "BIG / GO"
+  },
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "GO-Together Bridge v2",
+    "shortDescription": "Build with shared GO knowledge",
+    "longDescription": "Skills for websites, web apps, maps, code and architecture, using the existing authenticated GO Brain App. External builders and map providers require tools in the current chat. Web and Android host compatibility and server-enforced read/write scopes are pending acceptance testing. No new agent or database.",
+    "developerName": "BIG / GO",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "ค้นสถานะ PANTHEON จาก GO Brain พร้อมแหล่งอ้างอิงและเวลาบันทึก",
+      "ช่วยสร้างเว็บไซต์หรือเว็บแอปสำหรับมือถือด้วยเครื่องมือที่ห้องนี้ใช้ได้",
+      "ช่วยวางแผนที่และเส้นทางโดยใช้ข้อมูลจริง พร้อมระบุข้อจำกัด"
+    ]
+  }
+}

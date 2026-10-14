@@ -86,6 +86,8 @@ const tools=[
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'pantheon_health',description:'Read PANTHEON WorkHub health through an optional internal Service Binding. No task execution.',inputSchema:SCHEMA({})},
+{name:'github_repo',description:'Read metadata of a GitHub repository using the configured GitHub token; read only.',inputSchema:SCHEMA({repo:Q},['repo'])},
+{name:'github_file',description:'Read a UTF-8 file from a GitHub repository; read only. File must be under 100 KB.',inputSchema:SCHEMA({repo:Q,path:Q,ref:Q},['repo','path'])},
 {name:'pantheon_tasks',description:'List existing PANTHEON tasks through the existing WorkHub service; read only.',inputSchema:SCHEMA({})},
 {name:'pantheon_command',description:'Submit an explicit owner instruction to PANTHEON WorkHub; the WorkHub enforces its own approval and dispatch rules. Does not bypass queue or authorization.',inputSchema:SCHEMA({request:Q},['request'])},
 ];
@@ -110,8 +112,25 @@ async function pantheonRequest(env, payload){
   return {ok:res.ok,upstream_status:res.status,result:data};
  }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE'};}
 }
+async function githubRead(env,repo,path,ref){
+ if(typeof env.GITHUB_TOKEN!=='string'||!env.GITHUB_TOKEN.trim())return {ok:false,status:'GITHUB_NOT_CONFIGURED'};
+ if(typeof repo!=='string'||!/^[-\\w.]+\\/[-\\w.]+$/.test(repo))throw new Bad(400,'invalid_repo');
+ if(path!==null&&(typeof path!=='string'||!path||path.startsWith('/')||path.split('/').includes('..')||path.length>300))throw new Bad(400,'invalid_path');
+ if(ref!==undefined&&(typeof ref!=='string'||ref.length>120))throw new Bad(400,'invalid_ref');
+ const suffix=path===null?'':('/contents/'+path.split('/').map(encodeURIComponent).join('/'));
+ const query=path!==null&&ref?'?ref='+encodeURIComponent(ref):'';
+ try{
+  const res=await fetch('https://api.github.com/repos/'+repo+suffix+query,{headers:{'authorization':'Bearer '+env.GITHUB_TOKEN,'accept':'application/vnd.github+json','user-agent':'GO-Together-MCP','x-github-api-version':'2022-11-28'},signal:AbortSignal.timeout(10000)});
+  const data=await res.json();if(!res.ok)return {ok:false,upstream_status:res.status,error:typeof data.message==='string'?data.message:'GitHub API error'};
+  if(path===null)return {ok:true,full_name:data.full_name,default_branch:data.default_branch,private:data.private,html_url:data.html_url};
+  if(data.type!=='file'||data.size>100000||data.encoding!=='base64')return {ok:false,status:'UNSUPPORTED_FILE'};
+  return {ok:true,path:data.path,sha:data.sha,size:data.size,encoding:data.encoding,content:data.content};
+ }catch{return {ok:false,status:'GITHUB_UNAVAILABLE'};}
+}
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
 if(name==='pantheon_health'){restrict(a,[]);return pantheonHealth(env);}
+if(name==='github_repo'){restrict(a,['repo']);return githubRead(env,a.repo,null);}
+if(name==='github_file'){restrict(a,['repo','path','ref']);return githubRead(env,a.repo,a.path,a.ref);}
 if(name==='pantheon_tasks'){restrict(a,[]);return pantheonRequest(env,{intent:'LIST_TASKS'});}
 if(name==='pantheon_command'){restrict(a,['request']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');return pantheonRequest(env,{request:a.request.trim()});}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}

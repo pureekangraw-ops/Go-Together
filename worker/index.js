@@ -84,7 +84,7 @@ const tools=[
 {name:'brain_edit',description:'Change only the specified fields if the expected revision matches.',inputSchema:SCHEMA({id:Q,expected_revision:N,...fields},['id','expected_revision'])},
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
-{name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])}
+{name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'pantheon_health',description:'Read PANTHEON WorkHub health through an optional internal Service Binding. No task execution.',inputSchema:SCHEMA({})},
 ];
 

@@ -86,6 +86,8 @@ const tools=[
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'pantheon_health',description:'Read PANTHEON WorkHub health through an optional internal Service Binding. No task execution.',inputSchema:SCHEMA({})},
+{name:'pantheon_tasks',description:'List existing PANTHEON tasks through the existing WorkHub service; read only.',inputSchema:SCHEMA({})},
+{name:'pantheon_command',description:'Submit an explicit owner instruction to PANTHEON WorkHub; the WorkHub enforces its own approval and dispatch rules. Does not bypass queue or authorization.',inputSchema:SCHEMA({request:Q},['request'])},
 ];
 
 async function pantheonHealth(env){
@@ -99,8 +101,18 @@ async function pantheonHealth(env){
   return {connected:true,status:'HEALTHY',service:'pantheon-workhub',stage:typeof value.stage==='string'?value.stage:null,read_only:true,source:'PANTHEON /health',factory:factory&&typeof factory==='object'?{connection:factory.connection??null,station_status:factory.station_status??null,rail_status:factory.rail_status??null}:null};
  }catch{return {connected:false,status:'UPSTREAM_UNAVAILABLE',read_only:true};}
 }
+async function pantheonRequest(env, payload){
+ if(!env?.PANTHEON||typeof env.PANTHEON.fetch!=='function')return {ok:false,status:'NOT_CONFIGURED'};
+ try{
+  const res=await env.PANTHEON.fetch(new Request('https://phatheon-workhub.pureekangraw.workers.dev/v1/intent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}));
+  const raw=await res.text();let data;try{data=JSON.parse(raw)}catch{data={error:'INVALID_UPSTREAM_RESPONSE'}};
+  return {ok:res.ok,upstream_status:res.status,result:data};
+ }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE'};}
+}
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
 if(name==='pantheon_health'){restrict(a,[]);return pantheonHealth(env);}
+if(name==='pantheon_tasks'){restrict(a,[]);return pantheonRequest(env,{intent:'LIST_TASKS'});}
+if(name==='pantheon_command'){restrict(a,['request']);if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');return pantheonRequest(env,{request:a.request.trim()});}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

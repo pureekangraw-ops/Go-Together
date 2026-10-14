@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bridge Workflow"
+  short_description: "Route GO-Together Bridge v2 requests for websites, web apps,"
+  default_prompt: "Use $bridge-workflow for the requested GO-Together Bridge workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PANTHEON WorkHub"
+  short_description: "Owner-authorized WorkHub and Factory LOGIC handoffs"
+  default_prompt: "ใช้เครื่องมือ PANTHEON ที่มีจริงตามคำสั่งบิ๊ก แล้วอ่าน Task ID และใบรับงานกลับจากปลายทาง"

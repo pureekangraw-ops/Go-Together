@@ -1,0 +1,8 @@
+---
+name: go-brain-integration
+description: Search, retrieve, save and update shared GO Brain project context, decisions and pending work with revision and history evidence.
+---
+
+Use the existing GO Brain App tools: brain_search, brain_retrieve, brain_list, brain_summarize, brain_save, brain_edit, brain_set_status and brain_history. Discover their actual schema each session; never guess tool namespace or transport. Search then retrieve exact records before using them. Report record ID, revision, timestamps and source link. Brain search is lexical; GO interprets results. Historical status is not current production verification. Save only explicitly supplied or verified knowledge with source/time/limitations. Use work_id only as a pointer to an existing Work record. For edits retrieve current revision, change only authorized fields with expected_revision, then read back and inspect history. On conflict or uncertain write response read back before retrying; a replay may have already committed. Archive test fixtures after acceptance tests; do not delete user memories. Respect higher priority authorization and host controls. Do not invent read-only OAuth scopes: source currently documents brain-owner; server-enforced read/write separation is pending verification. Test cross-room access only by selecting this plugin in another actual chat and retrieving the same record. Existing connected-tool access in one Work Mode room does not prove ordinary ChatGPT Web or Android availability.
+
+Read [shared rules](../../references/shared-rules.md) before acting. Check the current host's actual tools, connections and authorization; a skill cannot grant tool access. Distinguish instructions from implemented tools and runtime evidence.

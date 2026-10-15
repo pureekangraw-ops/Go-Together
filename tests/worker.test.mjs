@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.js';
+test('GO reads one Observatory round through the existing owner binding',async()=>{
+ let sent;const result={status:'SNAPSHOT_AVAILABLE',read_only:true,content_trust:'untrusted_page_data',snapshot:{captureId:'round_one',sequence:2,expiresAtEpochMs:Date.now()+30000,payload:{title:'Checkout',text:'Payment pending'}}};
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_observatory',{capture_id:'round_one'}));
+ assert.equal(v.ok,true);assert.equal(v.result.snapshot.payload.text,'Payment pending');
+ assert.deepEqual(sent,{operation:'observatory_latest',view:'browser',capture_id:'round_one'});
+});
+test('GO Observatory denies anonymous reads and invalid filters without contacting PANTHEON',async()=>{
+ let calls=0;const e={...env,PANTHEON_OWNER:{ownerCall:async()=>{calls++;return {ok:true};}}};
+ assert.equal((await commandCall(e,'pantheon_observatory',{},{})).status,401);
+ for(const a of [{view:'cookies'},{device_id:'../bad'},{capture_id:'bad&path=1'},{url:'https://bad'}]){
+ const r=await commandCall(e,'pantheon_observatory',a);assert.equal((await r.json()).result.isError,true);
+ }assert.equal(calls,0);
+});
+test('GO refuses a snapshot that expired in transit',async()=>{
+ const e={...env,PANTHEON_OWNER:{ownerCall:async()=>({ok:true,result:{status:'SNAPSHOT_AVAILABLE',snapshot:{expiresAtEpochMs:Date.now()-1,payload:{text:'old state'}}}})}};
+ const v=await commandValue(await commandCall(e,'pantheon_observatory'));
+ assert.equal(v.ok,false);assert.equal(v.status,'NO_FRESH_SNAPSHOT');assert.equal(v.result,undefined);
+});
 test('GO uses internal owner bridge with no copied WorkHub token',async()=>{
  let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:200,result:{tasks:[]}};}}};
  const v=await commandValue(await commandCall(e,'pantheon_tasks'));
@@ -163,4 +182,3 @@ test('PANTHEON health rejects unexpected tool parameters and upstream errors',as
  const r2=await pantheonCall({...env,PANTHEON:{fetch:async()=>new Response('unavailable',{status:503})}});
  const v=JSON.parse((await r2.json()).result.content[0].text);assert.equal(v.connected,false);assert.equal(v.upstream_status,503);
 });
-

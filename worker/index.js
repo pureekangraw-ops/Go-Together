@@ -37,10 +37,12 @@ await db.prepare('INSERT INTO memories (id,kind,title,content,status,work_id,evi
 return one(db,key);}
 async function edit(db,key,args,version=null){const before=await one(db,key);if(!before)throw new Bad(404,'memory_not_found');if(version!==null&&version!==before.revision)throw new Bad(409,'revision_conflict');
 const x=clean(args);if(!Object.keys(x).length)throw new Bad(400,'empty_patch');
-const fields=Object.keys(x),values=fields.map(k=>x[k]),sql='UPDATE memories SET '+fields.map(k=>k+'=?').join(',')+',revision=revision+1,updated_at=? WHERE id=? AND revision=?';
-const r=await db.prepare(sql).bind(...values,stamp(),key,before.revision).run();
-if(r.meta?.changes!==1)throw new Bad(409,'revision_conflict');
-return one(db,key);}
+const fields=Object.keys(x),values=fields.map(k=>x[k]),sql='UPDATE memories SET '+fields.map(k=>k+'=?').join(',')+',revision=revision+1,updated_at=? WHERE id=? AND revision=? RETURNING *';
+// D1 meta.changes includes audit-trigger writes. The returned row proves this
+// compare-and-swap succeeded and is the exact version committed by this call.
+const updated=await db.prepare(sql).bind(...values,stamp(),key,before.revision).first();
+if(!updated)throw new Bad(409,'revision_conflict');
+return memory(updated);}
 async function audit(db,key){if(!(await one(db,key)))throw new Bad(404,'memory_not_found');const r=await db.prepare('SELECT * FROM history WHERE memory_id=? ORDER BY created_at DESC,id DESC LIMIT 500').bind(key).all();return (r.results||[]).map(x=>({id:x.id,action:x.action,created_at:x.created_at,before:x.before_json?JSON.parse(x.before_json):null,after:x.after_json?JSON.parse(x.after_json):null}));}
 const sortCols=['updated_at','created_at','title','kind','status'];
 async function listing(db,args={}){restrict(args,['kind','status','q','sort','limit']);const clauses=[],params=[];
@@ -296,3 +298,4 @@ if(p==='/mcp')return await mcp(req,env,ctx);
 if(p.startsWith('/api/'))return await api(req,env,url,ctx);
 return env.ASSETS.fetch(req);
 }catch(e){if(e instanceof Bad)return error(e.status,e.message);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};
+

@@ -96,6 +96,7 @@ const tools=[
 {name:'pantheon_tasks',description:'List PANTHEON tasks or read one exact task by task_id; read only.',inputSchema:SCHEMA({task_id:Q})},
 {name:'pantheon_command',description:'Create a WorkHub task (default create_task), queue_factory, dispatch_factory or reconcile_factory. Factory dispatch/reconciliation requires explicit owner approval approved=true and an existing task_id. Queuing never executes work.',inputSchema:SCHEMA({request:Q,operation:{type:'string',enum:['create_task','queue_factory','dispatch_factory','reconcile_factory']},task_id:Q,approved:{type:'boolean'}})},
 {name:'pantheon_factory',description:'Read Factory connection health or an exact WorkHub Factory job and its verified receipt; read only.',inputSchema:SCHEMA({task_id:Q})},
+{name:'pantheon_observatory',description:'Read one view of owner-shared, transient Observatory snapshots through PANTHEON OwnerBridge. No device control or persistent capture. Data expires after 30 seconds.',inputSchema:SCHEMA({view:{type:'string',enum:['browser','map']}},['view'])},
 ];
 
 async function pantheonHealth(env){
@@ -184,6 +185,7 @@ if(name==='pantheon_command'){
  throw new Bad(400,'invalid_operation');
 }
 if(name==='pantheon_factory'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{task_id:a.task_id},'factory_job');}return pantheonRequest(env,{},'factory_health');}
+if(name==='pantheon_observatory'){restrict(a,['view']);if(a.view!=='browser'&&a.view!=='map')throw new Bad(400,'invalid_view');return pantheonRequest(env,{view:a.view},'observatory_latest');}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

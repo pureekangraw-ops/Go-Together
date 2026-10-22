@@ -25,6 +25,19 @@ test('GO uses internal owner bridge with no copied WorkHub token',async()=>{
  const v=await commandValue(await commandCall(e,'pantheon_tasks'));
  assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'intent',payload:{intent:'LIST_TASKS'}});
 });
+test('GO can read only the owner-shared Observatory view using internal MCP',async()=>{
+ let sent, calls=0;
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;calls++;return {ok:true,upstream_status:200,result:{snapshots:[]}};}}};
+ const ok=await commandValue(await commandCall(e,'pantheon_observatory',{view:'browser'}));
+ assert.equal(ok.ok,true);
+ assert.deepEqual(sent,{operation:'observatory_latest',view:'browser'});
+ const denied=await commandCall(e,'pantheon_observatory',{view:'other'});
+ assert.equal((await denied.json()).result.isError,true);
+ assert.equal(calls,1);
+ const anonymous=await commandCall(e,'pantheon_observatory',{view:'map'},{});
+ assert.equal(anonymous.status,401);
+ assert.equal(calls,1);
+});
 test('GO queues Factory work only through owner bridge',async()=>{
  let sent;const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,upstream_status:201,result:{task_id:'task_'+'c'.repeat(32),executed:false}};}}};
  const v=await commandValue(await commandCall(e,'pantheon_command',{operation:'queue_factory',request:'bench test'}));

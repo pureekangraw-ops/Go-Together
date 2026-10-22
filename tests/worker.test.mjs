@@ -193,3 +193,11 @@ test('GO existing-task queue forwards only the exact identity',async()=>{
   assert.equal((await r.json()).result.isError,true);assert.equal(sent,null);
  }
 });
+test('existing-task queue authenticates owner before any bridge lookup',async()=>{
+ let calls=0;const e={...env,PANTHEON_OWNER:{ownerCall:async()=>{calls++;throw Error('must not reach bridge');}}};
+ for(const task_id of ['task_d6c9e93a42fd4f339bb47d941428dd08','task_'+'0'.repeat(32)]){
+  const r=await commandCall(e,'pantheon_command',{operation:'queue_factory',task_id},{});
+  assert.equal(r.status,401);
+ }
+ assert.equal(calls,0);
+});

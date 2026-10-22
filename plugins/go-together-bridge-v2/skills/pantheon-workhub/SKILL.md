@@ -14,7 +14,8 @@ Inspect the actual current-host tool catalog. A deployed server catalog does not
 - pantheon_health({}): redacted WorkHub health, not proof that a task completed.
 - pantheon_tasks({}): list tasks. pantheon_tasks({task_id}): exact task readback.
 - pantheon_command({request}): create_task by default; queues without executing.
-- pantheon_command({operation:"queue_factory",request}): queue a Factory LOGIC training-bench job; does not dispatch.
+- pantheon_command({operation:"queue_factory",request}): create a new Factory LOGIC training-bench job; does not dispatch.
+- pantheon_command({operation:"queue_factory",task_id}): queue the exact existing eligible Factory task without creating another task. Supply exactly one of request or task_id. Unsupported stored actions fail closed; never substitute a LOGIC job for a text-artifact request.
 - pantheon_command({operation:"dispatch_factory",task_id,approved:true}): dispatch an existing queued job after BIG explicitly requests that action.
 - pantheon_command({operation:"reconcile_factory",task_id,approved:true}): reconcile an uncertain dispatch after BIG authorizes reconciliation. Read before retrying.
 - pantheon_factory({}): Factory connection health.

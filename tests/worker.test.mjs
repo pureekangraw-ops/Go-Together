@@ -182,3 +182,14 @@ test('PANTHEON health rejects unexpected tool parameters and upstream errors',as
  const r2=await pantheonCall({...env,PANTHEON:{fetch:async()=>new Response('unavailable',{status:503})}});
  const v=JSON.parse((await r2.json()).result.content[0].text);assert.equal(v.connected,false);assert.equal(v.upstream_status,503);
 });
+
+test('GO existing-task queue forwards only the exact identity',async()=>{
+ let sent;const task_id='task_'+'f'.repeat(32);
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,result:{task_id,executed:false}};}}};
+ const v=await commandValue(await commandCall(e,'pantheon_command',{operation:'queue_factory',task_id}));
+ assert.equal(v.ok,true);assert.deepEqual(sent,{operation:'queue_factory',task_id});
+ for(const args of [{task_id,request:'ambiguous'},{task_id:'bad'},{task_id,approved:true},{}]){
+  sent=null;const r=await commandCall(e,'pantheon_command',{operation:'queue_factory',...args});
+  assert.equal((await r.json()).result.isError,true);assert.equal(sent,null);
+ }
+});

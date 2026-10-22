@@ -94,6 +94,7 @@ const tools=[
 {name:'github_repo',description:'Read metadata of a GitHub repository using the configured GitHub token; read only.',inputSchema:SCHEMA({repo:Q},['repo'])},
 {name:'github_file',description:'Read a UTF-8 file from a GitHub repository; read only. File must be under 100 KB.',inputSchema:SCHEMA({repo:Q,path:Q,ref:Q},['repo','path'])},
 {name:'pantheon_tasks',description:'List PANTHEON tasks or read one exact task by task_id; read only.',inputSchema:SCHEMA({task_id:Q})},
+{name:'pantheon_request',description:'Route an ordinary-language outcome through PANTHEON owner policy. Bounded task reads or plans only; unknown and unsupported requests fail closed. Preserves original request and optional existing task_id. Never queues, dispatches or authorizes Factory work. Use this for outcome requests; action IDs are not required.',inputSchema:SCHEMA({request:Q,task_id:Q},['request']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'pantheon_command',description:'Create a WorkHub task (default create_task), queue_factory, dispatch_factory or reconcile_factory. Factory dispatch/reconciliation requires explicit owner approval approved=true and an existing task_id. queue_factory accepts exactly one of request (new LOGIC training job) or task_id (existing eligible task, no substitution). Queuing never executes work.',inputSchema:SCHEMA({request:Q,operation:{type:'string',enum:['create_task','queue_factory','dispatch_factory','reconcile_factory']},task_id:Q,approved:{type:'boolean'}})},
 {name:'pantheon_factory',description:'Read Factory connection health or an exact WorkHub Factory job and its verified receipt; read only.',inputSchema:SCHEMA({task_id:Q})},
 ];
@@ -170,6 +171,12 @@ if(name==='cloudflare_worker'){restrict(a,['script']);return cloudflareRead(env,
 if(name==='github_repo'){restrict(a,['repo']);return githubRead(env,a.repo,null);}
 if(name==='github_file'){restrict(a,['repo','path','ref']);return githubRead(env,a.repo,a.path,a.ref);}
 if(name==='pantheon_tasks'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{intent:'SHOW_TASK',task_id:a.task_id});}return pantheonRequest(env,{intent:'LIST_TASKS'});}
+if(name==='pantheon_request'){
+ restrict(a,['request','task_id']);
+ if(typeof a.request!=='string'||!a.request.trim()||a.request.length>4000)throw new Bad(400,'invalid_request');
+ if(Object.hasOwn(a,'task_id')&&(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id)))throw new Bad(400,'invalid_task_id');
+ return pantheonRequest(env,{request:a.request,...(a.task_id?{task_id:a.task_id}:{})});
+}
 if(name==='pantheon_command'){
  restrict(a,['request','operation','task_id','approved']);const op=a.operation??'create_task';
  if(op==='queue_factory'&&Object.hasOwn(a,'task_id')){

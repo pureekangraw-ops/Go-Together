@@ -201,3 +201,22 @@ test('existing-task queue authenticates owner before any bridge lookup',async()=
  }
  assert.equal(calls,0);
 });
+
+test('LOCAL FIXTURE: outcome tool preserves original text and task identity through owner bridge',async()=>{
+ let sent;const task_id='task_'+'b'.repeat(32),request='  show this task  ';
+ const e={...env,PANTHEON_OWNER:{ownerCall:async a=>{sent=a;return {ok:true,result:{status:'READ',verified:false,task_id}};}}};
+ const r=await commandValue(await commandCall(e,'pantheon_request',{request,task_id}));
+ assert.deepEqual(sent,{operation:'intent',payload:{request,task_id}});assert.equal(r.result.verified,false);
+});
+test('outcome tool rejects extra authority fields and anonymous use before forwarding',async()=>{
+ let calls=0;const e={...env,PANTHEON_OWNER:{ownerCall:async()=>{calls++;return {ok:true};}}};
+ for(const args of [{request:'list tasks',approved:true},{request:'list tasks',operation:'dispatch_factory'},{request:'list tasks',task_id:'../bad'}]){
+ assert.equal((await (await commandCall(e,'pantheon_request',args)).json()).result.isError,true);
+ }
+ assert.equal((await commandCall(e,'pantheon_request',{request:'list tasks'},{})).status,401);assert.equal(calls,0);
+});
+test('outcome timeout/failure stays unavailable and never falls back to command execution',async()=>{
+ let calls=0;const e={...env,PANTHEON_OWNER:{ownerCall:async()=>{calls++;throw new DOMException('LOCAL FIXTURE','TimeoutError');}}};
+ const r=await commandValue(await commandCall(e,'pantheon_request',{request:'build a click-counter website'}));
+ assert.equal(r.ok,false);assert.equal(r.status,'UPSTREAM_UNAVAILABLE');assert.equal(calls,1);
+});

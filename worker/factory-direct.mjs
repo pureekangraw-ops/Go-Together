@@ -197,3 +197,48 @@ export async function factoryDirectReadback(env,{receiptId,workId,checkpointId,w
       evidenceRefs:r.result.result?.evidenceRefs || []};
   }catch{return fail('DIRECT_FACTORY_UNAVAILABLE');}
 }
+
+export async function factoryDirectArtifact(env,{
+  receiptId,artifactRef,workId,checkpointId,workPassRef,expectedSourceSha
+}={}) {
+  const context={receiptId,workId,checkpointId,workPassRef,expectedSourceSha};
+  if(typeof artifactRef!=='string'||artifactRef.length>900||
+    !artifactRef.startsWith('r2://factory/edge-results/'))
+    return fail('INVALID_ARTIFACT_REF');
+  const scoped=await factoryDirectReadback(env,context);
+  if(!scoped.ok || scoped.domainVerified!==true ||
+    !Array.isArray(scoped.artifactRefs) || !scoped.artifactRefs.includes(artifactRef))
+    return fail('ARTIFACT_NOT_IN_VERIFIED_RECEIPT');
+  if(!configured(env))return fail('DIRECT_RAIL_NOT_CONFIGURED');
+  try{
+    const raw=JSON.stringify({receiptId,artifactRef}),timestamp=String(Date.now());
+    const response=await env.FACTORY_DIRECT.fetch(new Request(directUrl+'/station/go-artifact',{
+      method:'POST',headers:{
+        'content-type':'application/json',
+        'x-factory-client':'GO',
+        'x-metropolis-factory-protocol':RAIL_PROTOCOL,
+        'x-metropolis-factory-timestamp':timestamp,
+        'x-metropolis-factory-signature':await sign(env.GO_FACTORY_RAIL_SECRET,timestamp,raw),
+      },body:raw}));
+    if(!response.ok)return {...fail('DIRECT_ARTIFACT_UNAVAILABLE'),httpStatus:response.status};
+    const bytes=await response.arrayBuffer();
+    if(bytes.byteLength>524288)return fail('ARTIFACT_EXCEEDS_MCP_LIMIT');
+    const actual=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))]
+      .map(b=>b.toString(16).padStart(2,'0')).join('');
+    if(response.headers.get('x-factory-artifact-sha256')!==actual ||
+      response.headers.get('x-factory-receipt-id')!==receiptId ||
+      response.headers.get('x-factory-source-sha')!==expectedSourceSha)
+      return fail('ARTIFACT_INTEGRITY_MISMATCH');
+    const mime=response.headers.get('content-type');
+    const allowedMime=['image/png','text/javascript; charset=utf-8',
+      'text/html; charset=utf-8','application/octet-stream'];
+    if(!allowedMime.includes(mime))return fail('ARTIFACT_MIME_UNEXPECTED');
+    let binary='';
+    const view=new Uint8Array(bytes);
+    for(let i=0;i<view.length;i+=16384)
+      binary+=String.fromCharCode(...view.slice(i,i+16384));
+    return {ok:true,status:'ARTIFACT_BYTES_DELIVERED',readOnly:true,executed:false,
+      receiptId,workId,checkpointId,artifactRef,mime,
+      bytes:view.byteLength,sha256:actual,base64:btoa(binary)};
+  } catch {return fail('DIRECT_ARTIFACT_UNAVAILABLE');}
+}

@@ -37,7 +37,7 @@ test('Factory report executes exactly three scoped reads; repeat remains read-on
     ops.push(a);
     if(a.operation==='factory_health')return {ok:true,upstream_status:200,result:{factory:{connection:'CONNECTED',machinery:{CODE:'READY',VISUAL:'READY',LOGIC:'READY'}}}};
     if(a.operation==='intent')return {ok:true,upstream_status:200,result:{task:{task_id:id,status:'QUEUED'}}};
-    if(a.operation==='factory_job')return {ok:true,upstream_status:200,result:{job:{task_id:id,status:'QUEUED',task_status:'QUEUED',updated_at:new Date().toISOString()}}};
+    if(a.operation==='factory_job')return {ok:true,upstream_status:200,result:{job:{task_id:id,status:'QUEUED',task_status:'QUEUED',updated_at:new Date(Date.now()-1000).toISOString()}}};
     throw Error('unexpected operation');
   }}};
   for(let i=0;i<2;i++){

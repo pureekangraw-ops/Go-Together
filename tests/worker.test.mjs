@@ -220,3 +220,49 @@ test('outcome timeout/failure stays unavailable and never falls back to command 
  const r=await commandValue(await commandCall(e,'pantheon_request',{request:'build a click-counter website'}));
  assert.equal(r.ok,false);assert.equal(r.status,'UPSTREAM_UNAVAILABLE');assert.equal(calls,1);
 });
+
+test('GO Hub trusted read is owner-only, fixed RPC, and secret-redacted',async()=>{
+ let calls=0;
+ const now=Date.now();
+ const e={...env,PRYTANEION_DIRECT:{probe:async(...args)=>{
+   calls++;assert.deepEqual(args,[]);
+   return {evidence:'DIRECT_PROVIDER_READ',readOnly:true,privateDataReturned:false,
+     freshness:'FRESH',observedAt:now,expiresAt:now+60000,
+     access_token:'LEAK_THIS_PRIVATE_TOKEN',connections:{
+       github:{status:'CONNECTED',connected:true,freshness:'FRESH',identity:'LEAK'},
+       cloudflare:{status:'UNAUTHORIZED',connected:false,freshness:'FRESH'},
+       notion:{status:'CONNECTED',connected:true,freshness:'FRESH',data:'LEAK'},
+       google:{status:'NOT_CONFIGURED',connected:false,freshness:'FRESH'}
+     }};
+ }}};
+ assert.equal((await commandCall(e,'hub_connections',{},{})).status,401);
+ assert.equal(calls,0);
+ const data=await commandValue(await commandCall(e,'hub_connections'));
+ assert.equal(calls,1);
+ assert.equal(data.ok,true);
+ assert.equal(data.readOnly,true);
+ assert.equal(data.source,'PRYTANEION_SERVICE_BINDING');
+ assert.equal(data.connections.github.connected,true);
+ assert.equal(data.connections.cloudflare.status,'UNAUTHORIZED');
+ assert.equal(data.connections.google.status,'NOT_CONFIGURED');
+ assert.doesNotMatch(JSON.stringify(data),/LEAK|PRIVATE_TOKEN|identity|access_token/);
+ // The existing tool can also read the same bound status without a new client schema.
+ const metadata=await commandValue(await commandCall(e,'cloudflare_worker',{script:'prytaneion-explorer'}));
+ assert.equal(metadata.hubDirectRead.ok,true);
+ assert.equal(calls,2);
+ const invalid=await commandCall(e,'hub_connections',{operation:'write'});
+ assert.equal((await invalid.json()).result.isError,true);
+ assert.equal(calls,2);
+});
+test('GO Hub caller fails closed when RPC is unavailable or responds with untrusted data',async()=>{
+ const missing=await commandValue(await commandCall(env,'hub_connections'));
+ assert.equal(missing.status,'NOT_CONNECTED');
+ const bad=await commandValue(await commandCall({...env,PRYTANEION_DIRECT:{probe:async()=>({
+    evidence:'DIRECT_PROVIDER_READ',privateDataReturned:true,readOnly:true,connections:{github:{status:'CONNECTED'}}
+ })}},'hub_connections'));
+ assert.equal(bad.status,'PROVIDER_UNVERIFIED');
+ assert.equal(bad.connections,undefined);
+ const exception=await commandValue(await commandCall({...env,PRYTANEION_DIRECT:{probe:async()=>{throw Error('secret');}}},'hub_connections'));
+ assert.equal(exception.status,'UPSTREAM_UNAVAILABLE');
+ assert.doesNotMatch(JSON.stringify(exception),/secret/);
+});

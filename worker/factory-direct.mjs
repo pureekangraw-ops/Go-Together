@@ -242,3 +242,75 @@ export async function factoryDirectArtifact(env,{
       bytes:view.byteLength,sha256:actual,base64:btoa(binary)};
   } catch {return fail('DIRECT_ARTIFACT_UNAVAILABLE');}
 }
+
+const inputKeys=new Set(['workId','checkpointId','workPassRef','workPass',
+  'ownerDomain','expectedSourceSha','spec']);
+export async function factoryDirectPrepare(env,input={}){
+  if(!input||typeof input!=='object'||Array.isArray(input)||
+    Object.keys(input).some(k=>!inputKeys.has(k)))
+    return fail('GO_INPUT_INVALID');
+  if(!['CODE','VISUAL'].includes(input.ownerDomain) ||
+    !input.workId||!input.checkpointId||!input.workPassRef||
+    input.workPass?.issuedBy!=='CITY_HALL'||
+    input.workPass?.actor!=='GO'||
+    input.workPass?.workId!==input.workId||
+    input.workPass?.checkpointId!==input.checkpointId||
+    !/^[a-f0-9]{40}$/.test(input.expectedSourceSha||'') ||
+    !input.spec||typeof input.spec!=='object'||Array.isArray(input.spec))
+    return fail('GO_INPUT_WORK_CONTEXT_INVALID');
+  if(!configured(env))return fail('DIRECT_RAIL_NOT_CONFIGURED');
+  try{
+    const response=await directRequest(env,'/station/go-input','POST',input);
+    if(!response.ok || response.result?.status!=='INPUT_PREPARED' ||
+      response.result.workId!==input.workId||
+      response.result.checkpointId!==input.checkpointId||
+      response.result.domain!==input.ownerDomain||
+      response.result.sourceSha!==input.expectedSourceSha||
+      typeof response.result.ref!=='string'||
+      !/^r2:\/\/factory\/edge-inputs\/go-[a-f0-9]{64}\.json#sha256=[a-f0-9]{64}$/.test(response.result.ref)||
+      !/^[a-f0-9]{64}$/.test(response.result.sha256||'')||
+      !response.result.ref.endsWith('#sha256='+response.result.sha256))
+      return fail('GO_INPUT_NOT_VERIFIED');
+    return {ok:true,...response.result,executed:false};
+  }catch{return fail('GO_INPUT_UNAVAILABLE');}
+}
+// One owner-approved outcome operation: prepare immutable input, execute the
+// scoped Work, fetch the real bytes and return source-owned evidence.
+// No coordinator-generated artifact is substituted if any step is unavailable.
+export async function factoryDirectSubmit(env,{work,spec}={},approved=false){
+  if(approved!==true)return fail('OWNER_APPROVAL_REQUIRED');
+  if(!work||typeof work!=='object'||Array.isArray(work)||
+    typeof spec!=='object'||!spec||Array.isArray(spec))
+    return fail('INVALID_SCOPED_GO_WORK');
+  const ownerDomain=work.ownerDomain;
+  if(!['CODE','VISUAL'].includes(ownerDomain))
+    return fail('DIRECT_SUBMIT_DOMAIN_UNSUPPORTED');
+  const input={workId:work.workId,checkpointId:work.checkpointId,
+    workPassRef:work.workPassRef,workPass:work.workPass,
+    expectedSourceSha:work.expectedSourceSha,ownerDomain,spec};
+  const prepared=await factoryDirectPrepare(env,input);
+  if(!prepared.ok)return prepared;
+  const scope=ownerDomain==='CODE'?['EXECUTE:CODE','DEPLOY:CODE']:['EXECUTE:VISUAL'];
+  const intent=ownerDomain==='CODE'?'EXECUTE_CODE':'EXECUTE_VISUAL';
+  const run=await factoryDirectExecute(env,{
+    ...work,intent,scope,inputRefs:[prepared.ref]
+  },true);
+  if(!run.ok)return {...run,preparedRef:prepared.ref};
+  const ref=run.artifactRefs?.find(x=>typeof x==='string'&&
+    x.startsWith('r2://factory/edge-results/'));
+  if(!ref)return {...fail('DOMAIN_ARTIFACT_MISSING'),receiptId:run.receiptId,preparedRef:prepared.ref};
+  const file=await factoryDirectArtifact(env,{
+    receiptId:run.receiptId,artifactRef:ref,workId:run.taskWorkId,
+    checkpointId:run.checkpointId,workPassRef:work.workPassRef,
+    expectedSourceSha:work.expectedSourceSha
+  });
+  if(!file.ok)return {...file,receiptId:run.receiptId,
+    artifactRef:ref,preparedRef:prepared.ref};
+  return {ok:true,status:'GO_FACTORY_DELIVERABLE_READY',domain:ownerDomain,
+    workId:run.taskWorkId,checkpointId:run.checkpointId,
+    receiptId:run.receiptId,sourceSha:run.sourceSha,
+    inputRef:prepared.ref,
+    artifactRef:file.artifactRef,
+    artifact:{mime:file.mime,bytes:file.bytes,sha256:file.sha256,base64:file.base64},
+    evidenceRefs:run.evidenceRefs,executed:true,deliveredBytes:true};
+}

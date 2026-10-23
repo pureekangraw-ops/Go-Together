@@ -43,6 +43,10 @@
       "binding": "PRYTANEION_DIRECT",
       "service": "prytaneion-explorer",
       "entrypoint": "HubDirectRead"
+    },
+    {
+      "binding": "FACTORY_DIRECT",
+      "service": "factory-district"
     }
   ]
 }

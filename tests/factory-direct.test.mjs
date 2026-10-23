@@ -65,7 +65,7 @@ test('even a correctly shaped owner key is NOT authorization or job proof',async
     GO_FACTORY_RAIL_SECRET:'f'.repeat(64),
     FACTORY_DIRECT:mockBinding(async()=>Response.json(goodHealth()))
   });
-  assert.equal(value.keyState,'OWNER_KEY_FORMAT_PRESENT_NOT_VERIFIED');
+  assert.equal(value.keyState,'KEY_FORMAT_PRESENT_NOT_AUTH_VERIFIED');
   assert.equal(value.commandReady,false);
   assert.equal(value.readOnly,true);
 });

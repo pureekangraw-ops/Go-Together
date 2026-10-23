@@ -47,6 +47,11 @@
     {
       "binding": "FACTORY_DIRECT",
       "service": "factory-district"
+    },
+    {
+      "binding": "OBSERVATORY_GO",
+      "service": "observatory-shared-browser",
+      "entrypoint": "ObservatoryGoBridge"
     }
   ]
 }

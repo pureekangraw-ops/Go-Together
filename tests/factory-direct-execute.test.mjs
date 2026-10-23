@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.js';
-import {buildGoHandoff, factoryDirectExecute, factoryDirectReadback} from '../worker/factory-direct.mjs';
+import {buildGoHandoff, factoryDirectExecute, factoryDirectReadback, factoryDirectArtifact} from '../worker/factory-direct.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev',secret='b'.repeat(64),sha='a'.repeat(40);
 const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
@@ -126,4 +126,51 @@ test('direct GO readiness/execute tools are advertised with correct MCP effect a
   for(const name of names)assert.ok(tools.some(t=>t.name===name),name);
   assert.equal(tools.find(t=>t.name==='factory_direct_execute').annotations.readOnlyHint,false);
   assert.equal(tools.find(t=>t.name==='factory_direct_execute').annotations.destructiveHint,true);
+});
+
+test('GO delivers exact source-owned JS bytes, not just a receipt label',async()=>{
+  const content='export default {fetch(){return new Response("real result")}}';
+  const data=new TextEncoder().encode(content);
+  const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',data))]
+    .map(x=>x.toString(16).padStart(2,'0')).join('');
+  let reads=0,downloads=0;
+  const env=mockedEnv(({path,method,body})=>{
+    if(path==='/station/readback/'+receiptId){reads++;return Response.json(value);}
+    if(path==='/station/go-artifact'){
+      downloads++;
+      assert.equal(method,'POST');
+      assert.equal(body.receiptId,receiptId);
+      assert.equal(body.artifactRef,value.result.artifactRefs[0]);
+      return new Response(data,{headers:{
+        'content-type':'text/javascript; charset=utf-8',
+        'x-factory-artifact-sha256':digest,
+        'x-factory-receipt-id':receiptId,
+        'x-factory-source-sha':sha}});
+    }
+    throw Error('unexpected direct request');
+  });
+  const args={receiptId,artifactRef:value.result.artifactRefs[0],
+    workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha};
+  const out=val(await tool(env,'factory_direct_artifact',args));
+  assert.equal(out.ok,true);
+  assert.equal(out.status,'ARTIFACT_BYTES_DELIVERED');
+  assert.equal(out.sha256,digest);
+  assert.equal(Buffer.from(out.base64,'base64').toString(),content);
+  assert.equal(reads,1);assert.equal(downloads,1);
+});
+test('GO rejects artifact bytes with mismatched checksum and unrelated receipt',async()=>{
+  const data=new TextEncoder().encode('file content');
+  const env=mockedEnv(({path})=>path.startsWith('/station/readback/')
+    ? Response.json(value)
+    : new Response(data,{headers:{
+      'content-type':'text/javascript; charset=utf-8',
+      'x-factory-artifact-sha256':'f'.repeat(64),
+      'x-factory-receipt-id':receiptId,
+      'x-factory-source-sha':sha}}));
+  const args={receiptId,artifactRef:value.result.artifactRefs[0],
+    workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha};
+  const wrong=await factoryDirectArtifact(env,args);
+  assert.equal(wrong.status,'ARTIFACT_INTEGRITY_MISMATCH');
+  const elsewhere=await factoryDirectArtifact(env,{...args,artifactRef:'r2://factory/edge-results/OTHER/secret.txt'});
+  assert.equal(elsewhere.status,'ARTIFACT_NOT_IN_VERIFIED_RECEIPT');
 });

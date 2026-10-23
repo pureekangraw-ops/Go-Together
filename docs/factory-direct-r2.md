@@ -115,3 +115,29 @@ by this draft.
 Paired CI on both draft heads uses synthetic 64-hex keys and fake machine
 providers. Green CI verifies the protocol modules and receipt checks, not a
 live owner credential or production artifacts.
+
+## Completed WORK implementation in this production slice
+
+- The single GO owner command `factory_direct_submit({work,spec,approved:true})`
+  now packages a real bounded CODE or VISUAL brief, sends the job over private
+  signed Factory rail, checks receipt/source/actor, reads the returned artifact,
+  and returns real MIME/byte count/SHA256/base64 rather than just status text.
+- `factory_direct_prepare` creates immutable content-addressed
+  `r2://factory/edge-inputs/go-<sha256>.json#sha256=<sha256>` packages in
+  Factory's existing R2 store. The package includes exact Work and Checkpoint
+  and is read by existing CODE or VISUAL machine providers. It does not run
+  machinery on its own.
+- Only a genuine active GO Work Pass issued by `CITY_HALL` and matching Work
+  identity can prepare the input. GO Brain does **not** create a second Work
+  authority or silently reclassify old PANTHEON tasks.
+- The existing, supported CODE scope remains a bounded JavaScript edge Worker
+  source patch with explicit HTTP behavior assertions. VISUAL supports a
+  static HTML card exported as PNG. This product is not a general Node project
+  executor or arbitrary generative image pipeline.
+- PANTHEON's role remains data/ledger/receipt transport. Its live command
+  path is retained for old tasks until the direct handoff is usable, not
+  switched or forcibly migrated.
+
+This is the **WORK implementation**. User-level TEST/Debug and artifact
+acceptance are a separate follow-on phase, not a parallel blocker or an
+additional task in this build plan.

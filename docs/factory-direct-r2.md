@@ -1,122 +1,87 @@
-# Factory TEST & DEBUG R2 — GO-direct cutover (owner-approved 2026-10-23)
+# Factory R2 — GO direct command lane (WORK deliverable, 2026-10-23)
 
-## Intent
+## Owner-approved operating route
 
-BIG gives GO a work instruction. GO assesses the task, invokes Factory directly
-for supported CODE / VISUAL / LOGIC machinery, receives a source-owned artifact
-and receipt, checks and hands the output back to BIG. PANTHEON remains a data
-transport/registry/evidence exchange; it is no longer the required execution
-proxy once direct Factory acceptance is verified. Do **not** re-label existing
-PANTHEON D1 `d1.create_text_artifact` actions as executable Factory domain jobs.
+BIG gives GO a business task. GO chooses the supported Factory capability and
+submits its bounded specification through `factory_direct_submit`.
+Factory creates its **own** durable Job ID and runs its registered machinery.
+GO obtains Factory's actual Receipt, source-owned result bytes and evidence,
+then hands them to BIG. PANTHEON remains a data exchange, task register and
+historical receipt channel, but is not an obligatory GO command proxy.
 
-## Current GO-side implementation (this draft PR)
+`BIG -> GO Brain -> FACTORY_DIRECT -> Factory machinery -> Receipt/Artifact -> GO -> BIG`
 
-- `FACTORY_DIRECT`: private Worker Service Binding GO Brain -> `factory-district`.
-- `factory_direct_status`: owner-only read of the **exact** `/health` route
-  over that binding. It reports identity, machinery registration and source SHA
-  with an explicit `commandReady:false`. No PANTHEON hop, public API,
-  generic URL, forwarded token, job creation or execution.
-- `factory_direct_preflight`, `factory_direct_execute`, `factory_direct_readback`:
-  HMAC-signed Work Pass preflight, explicitly owner-approved execution, exact
-  source- and actor-correlated receipt retrieval. The caller must supply a real
-  existing GO-owned Work Pass; the tool does not mint one.
-- `factory_direct_artifact`: requests bytes only from an exact authorized GO
-  receipt, verifies SHA256 of returned data and the Factory source identity,
-  and returns MIME + base64 for files up to 512KiB.
-- Matching Factory-side direct principal, Work Pass validation and a private
-  signed artifact route are in **Factory-District Draft PR #43**. The paired
-  source changes are not yet deployed to live Workers.
-- Legacy PANTHEON OwnerBridge reads and commands remain **unchanged**. Do not
-  delete its in-flight or completed historical jobs.
-- A successful `factory_direct_status` is not a completed CODE/VISUAL/LOGIC job.
+**No Metropolis/City Work Pass, Work ID, Checkpoint ID, or caller-created
+Factory Job ID is required on the GO command.** Factory derives a separate
+internal scoped machine ticket after authenticating the GO signed rail; that
+ticket exists only to retain compatibility with the original machine kernel,
+not as a new external approval ceremony.
 
-## Cloudflare setup (2026-10-23)
+## Connected implementation in the paired repositories
 
-Both live Workers have a new, separate Secret Text slot,
-`GO_FACTORY_RAIL_SECRET`. GO's and Factory's placeholder values are
-**different** and intentionally not usable for authentication; legacy keys
-were not copied or overwritten.
+**GO-Together PR #12** exposes:
+- `factory_direct_status()`: private Service Binding health/registration and
+  exact Factory source SHA (not proof of execution).
+- `factory_direct_submit({domain,spec,requestId?,approved:true})`: one bounded
+  authorized operation. GO generates a unique requestId if omitted; reuse the
+  same requestId to reconcile an uncertain prior send. No Work Pass fields.
+- `factory_direct_job_status({requestId})`: read-only Factory job/Receipt lookup,
+  including an interrupted send. Never re-runs machinery.
+- `factory_direct_readback({receiptId})`: signed, source-bound job receipt.
+- `factory_direct_artifact({receiptId,artifactRef})`: read actual Factory file
+  bytes (max 512KiB) and verify returned SHA-256, MIME and source SHA.
 
-1. BIG generates one fresh unpredictable **64-character hexadecimal string**.
-2. BIG replaces `GO_FACTORY_RAIL_SECRET` with that **same** value under
-   **go-together** and **factory-district** > Settings > Variables and Secrets.
-3. Do not paste the value into chat, GitHub, Brain, a Work pass, or an artifact.
-4. This does **not** make live direct execution operational by itself. GO
-   signed transport and Factory GO-principal receiver have been implemented in
-   **paired Draft PR #12 and #43**, but neither has been deployed. They must be
-   deployed in a coordinated order after reviewing the current bindings,
-   adding one matching real secret, and obtaining a genuine scoped Work Pass.
-5. Never overwrite `PANTHEON_FACTORY_RAIL_SECRET`,
-   `METROPOLIS_FACTORY_RAIL_SECRET`, `FACTORY_PANTHEON_SECRET`,
-   the PANTHEON owner binding, or existing record stores.
+**Factory-District PR #43**:
+- Independently authenticates GO using its own `GO_FACTORY_RAIL_SECRET` HMAC
+  on an existing private Worker service-binding rail. The GO principal is
+  distinct from CITY and PANTHEON and cannot use their credentials.
+- `POST /station/go-job` accepts exactly `requestId`, `domain`, `spec`,
+  `expectedSourceSha`. It rejects Work Pass, authority, injected machine
+  scopes/IDs, unauthenticated calls and unsupported specifications.
+- Factory deterministically derives an opaque `GOJOB-...` job identity from
+  the requestId; this permits idempotent transport retries and prevents
+  a duplicate machine effect. Reuse with changed instructions fails closed.
+- Stores bounded CODE/VISUAL briefs immutably in existing Factory R2, then
+  executes the existing bounded provider kernel. Receipts carry Job,
+  Checkpoint, actor, source SHA, result references and evidence.
+- `POST /station/go-job-status` recovers the job/Receipt state by requestId
+  without replaying effects. Existing authenticated Receipt readback and
+  a GO-owned Receipt-scoped artifact-bytes endpoint are reused.
+- Legacy CITY/PANTHEON signed routes, secrets, D1 ledger, existing tasks,
+  issued receipts and source of truth are unchanged.
 
-The new Binding name `FACTORY_DIRECT` appears in the repo config but is not
-a live runtime Binding until this code/config is deployed. Production continues
-using its current safe routes during the draft.
+## Supported production capabilities
 
-## Direct executable contract (implemented in paired drafts; live acceptance pending)
+| Domain | Actual bounded operation | Actual output |
+| --- | --- | --- |
+| CODE | Single Worker JS source, one exact patch, 1–8 HTTP assertions, isolated Dynamic Worker sandbox | Source `main.js`, Receipt, evidence |
+| VISUAL | Static HTML card from title/body/accent and viewport; Browser rendering | `render.png`, Receipt, evidence |
+| LOGIC | Place DWARF-01 into its training bench | Placement evidence + Receipt (no generic computation) |
 
-- Owner-authenticated GO Brain uses its actual actor identity and existing
-  owner-authorized Work/Checkpoint provenance. Factory authenticates a
-  *distinct* GO principal over the private Service Binding with a signed HMAC
-  envelope and checks Work Pass, domain scope, immutable input refs and
-  correlating actor/Work/checkpoint before any effect.
-- `factory_direct_preflight` is read-only;
-  `factory_direct_execute` is a deliberate owner-authorized command;
-  `factory_direct_readback` returns exact receipt/artifact refs/sourceSHA;
-  `factory_direct_artifact` reads and verifies actual bytes. No unsigned
-  execution, URL-proxying or fake Work Pass.
-- CODE is currently the bounded edge JS Worker patch/test/deploy-in-sandbox
-  capability with scope `EXECUTE:CODE` + `DEPLOY:CODE`.
-  VISUAL is bounded static HTML-to-PNG `EXECUTE:VISUAL`.
-  LOGIC currently has a real trainee placement path, not a general arithmetic
-  computation machine. Register genuinely supported capabilities only.
-- Existing task identities CODE/VISUAL/LOGIC that got `UNSUPPORTED 422`
-  and `Factory job not found 404` are preserved. A new direct Work may be
-  created only through the actual owner Work system—not by mutating action
-  identity on those historical tasks.
-- Primary acceptance is a generated artifact opened and read by GO, matching
-  source-owned digest + durable receipt and repeat read without repeat execution.
-  PANTHEON remains for data transfer and historical receipts. Retire its active
-  Factory dispatch as a *default* only after end-to-end GO-direct acceptance.
+Capabilities do **not** imply arbitrary Node/npm builds, public deployment,
+generative image creation or general-purpose LOGIC calculations.
+Failures must never be labelled as successfully produced artifacts.
 
-## Evidence baseline
+## Authentication and safe release
 
-- PANTHEON current legacy queue of existing CODE/VISUAL/LOGIC requests:
-  authenticated 422, task state unchanged; exact Factory job read 404.
-- New isolated LOGIC trainee acceptance task
-  `task_ecc159fe0841476481782002f4dc6692`:
-  dispatch COMPLETED, owner receipt
-  `receipt-d9c237ec-1bf3-4d4f-9296-823af4dbb494`,
-  authenticated stable repeated readback, status PLACED_FOR_TRAINING.
-  This is **not** arithmetic output or CODE/VISUAL artifact delivery.
-- Factory CODE/VISUAL provider bindings are present in Cloudflare,
-  but machine health READY is registration, not proof of a production job.
+The existing Cloudflare `go-together` and `factory-district` Workers contain
+**different, intentionally inactive dummy** Secret Text values under the
+name `GO_FACTORY_RAIL_SECRET`. Such strings are not valid HMAC configuration.
+The checked-in GO Wrangler configuration declares private `FACTORY_DIRECT`
+Service Binding to `factory-district`; this has NOT been activated in the live
+GO Worker until the new code/config is deployed.
 
-No merge, production source deployment or direct Factory job has been caused
-by this draft.
+A live GO direct command will require BIG to replace both dummy slots with
+the **same** fresh, secret 64-character hexadecimal string in Cloudflare.
+Do not paste it into GitHub, chat, Brain, logs or request bodies. The legacy
+PANTHEON/CITY keys remain separate; no migration copies them.
 
-## WORK completion (current phase)
+**Current WORK result:** paired feature source and native MCP interfaces are
+implemented in PR #12 and PR #43. GitHub CI verifies build compatibility.
+Both PRs remain reviewable but not merged/deployed. No user-facing live
+Factory direct-job output has been claimed.
 
-GO-to-Factory direct command source is built as one operating path:
-
-- Owner-authenticated GO accepts a real team-provided CITY_HALL Work Pass;
-- GO prepares a deterministic CODE or VISUAL input package in Factory R2;
-- GO submits the corresponding signed and scoped machine operation over its
-  private FACTORY_DIRECT Service Binding (no PANTHEON dispatch hop);
-- Factory processes the job through its existing machinery/providers;
-- GO retrieves the exact Factory receipt, JS/PNG bytes, SHA256 and evidence.
-
-The legacy PANTHEON path is preserved for existing tasks and receipt/data exchange.
-LOGIC currently supports training-bench placement only; the product does
-not imply a general computation machine or imaginary Factory mapping.
-
-**Completed deliverable of WORK:** paired source changes on GO PR #12 and
-Factory PR #43, with new typed GO MCP submit tool and authenticated R2 input
-and output routes. No new secret or Work ID authority introduced.
-
-**Not part of this WORK plan:** owner acceptance/TEST/Debug, merging or
-live cutover. Both existing Cloudflare slots remain deliberately inert dummy
-values. Real active execution requires the existing owner's genuine Work Pass,
-one matching real secret across GO/Factory, and coordinated release; the
-separate TEST handoff will evaluate live artifacts after WORK is delivered.
+**Outside this WORK plan:** release/cutover, independent owner acceptance,
+real-device/user TEST and DEBUG. These are a separate later phase; old
+PANTHEON Factory commands are preserved until the new GO lane has been
+safely installed and accepted. The data/receipt transfer role survives.

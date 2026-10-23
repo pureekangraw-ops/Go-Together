@@ -1,4 +1,5 @@
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
+import {createFactoryReport} from '../portable-factory-report.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
 const SOURCE_SHA='__SOURCE_SHA__';
@@ -97,6 +98,7 @@ const tools=[
 {name:'pantheon_tasks',description:'List PANTHEON tasks or read one exact task by task_id; read only.',inputSchema:SCHEMA({task_id:Q})},
 {name:'pantheon_request',description:'Route an ordinary-language outcome through PANTHEON owner policy. Bounded task reads or plans only; unknown and unsupported requests fail closed. Preserves original request and optional existing task_id. Never queues, dispatches or authorizes Factory work. Use this for outcome requests; action IDs are not required.',inputSchema:SCHEMA({request:Q,task_id:Q},['request']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'pantheon_command',description:'Create a WorkHub task (default create_task), queue_factory, dispatch_factory or reconcile_factory. Factory dispatch/reconciliation requires explicit owner approval approved=true and an existing task_id. queue_factory accepts exactly one of request (new LOGIC training job) or task_id (existing eligible task, no substitution). Queuing never executes work.',inputSchema:SCHEMA({request:Q,operation:{type:'string',enum:['create_task','queue_factory','dispatch_factory','reconcile_factory']},task_id:Q,approved:{type:'boolean'}})},
+{name:'factory_report',description:'Owner-authenticated read-only Factory status report for 1–3 explicit existing task IDs. Dry-run unless execute=true. No writes or retry. Includes receipt/sha verification.',inputSchema:SCHEMA({taskIds:{type:'array',items:Q,minItems:1,maxItems:3,uniqueItems:true},execute:{type:'boolean',default:false}},['taskIds']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'pantheon_factory',description:'Read Factory connection health or an exact WorkHub Factory job and its verified receipt; read only.',inputSchema:SCHEMA({task_id:Q})},
 ];
 
@@ -179,6 +181,27 @@ async function hubConnections(env) {
       expiresAt:Number.isSafeInteger(data?.expiresAt)?data.expiresAt:null,connections};
   }catch{return {ok:false,status:'UPSTREAM_UNAVAILABLE',readOnly:true,source:'PRYTANEION_SERVICE_BINDING'};}
 }
+
+async function registeredFactoryReport(env, options) {
+  // Invoke only the existing owner-scoped read-only PANTHEON_OWNER bridge.
+  // Explicit IDs only. No extra credentials, permissions, HTTP proxy, queue or dispatch.
+  const connectors = {
+    mcp__codex_apps__go_brain_pantheon_factory: args => (
+      args.task_id
+        ? pantheonRequest(env,{task_id:args.task_id},'factory_job')
+        : pantheonRequest(env,{},'factory_health')
+    ),
+    mcp__codex_apps__go_brain_pantheon_tasks: args => (
+      pantheonRequest(env,{intent:'SHOW_TASK',task_id:args.task_id})
+    )
+  };
+  const report = await createFactoryReport(connectors).report(options);
+  return {...report,contract:'factory-status-report/v1',
+    reportTool:'GO_BRAIN_MCP_FACTORY_REPORT',
+    transport:'PANTHEON_OWNER_WORKER_RPC',
+    healthIsNotExecution:true};
+}
+
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
 if(name==='pantheon_health'){restrict(a,[]);return pantheonHealth(env);}
 if(name==='pantheon_observatory'){
@@ -220,6 +243,7 @@ if(name==='pantheon_command'){
  }
  throw new Bad(400,'invalid_operation');
 }
+if(name==='factory_report'){restrict(a,['taskIds','execute']);return registeredFactoryReport(env,a);}
 if(name==='pantheon_factory'){restrict(a,['task_id']);if(a.task_id!==undefined){if(typeof a.task_id!=='string'||!/^task_[a-f0-9]{32}$/.test(a.task_id))throw new Bad(400,'invalid_task_id');return pantheonRequest(env,{task_id:a.task_id},'factory_job');}return pantheonRequest(env,{},'factory_health');}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}

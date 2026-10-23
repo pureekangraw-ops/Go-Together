@@ -53,7 +53,7 @@ test('direct status reads only fixed health route, redacts secrets, and never cl
   assert.equal(value.route,'GO_BRAIN_TO_FACTORY_DIRECT');
   assert.equal(value.readOnly,true);
   assert.equal(value.commandReady,false);
-  assert.equal(value.keyState,'PENDING_OWNER_REPLACEMENT');
+  assert.equal(value.keyState,'KEY_UNSUPPORTED_OR_PLACEHOLDER');
   assert.equal(value.machinery.CODE,'READY');
   assert.equal(value.sourceSha,'a'.repeat(40));
   assert.equal(calls,1);

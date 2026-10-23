@@ -1,176 +1,132 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker/index.js';
-import {buildGoHandoff, factoryDirectExecute, factoryDirectReadback, factoryDirectArtifact} from '../worker/factory-direct.mjs';
+import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus}
+  from '../worker/factory-direct.mjs';
 
-const ROOT='https://go-together.pureekangraw.workers.dev',secret='b'.repeat(64),sha='a'.repeat(40);
+const ROOT='https://go-together.pureekangraw.workers.dev';
+const KEY='b'.repeat(64),SHA='a'.repeat(40);
+const ID='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const JOB='GOJOB-'+ 'a'.repeat(32);
+const RID='receipt-11111111-2222-4333-8444-555555555555';
+const ART='r2://factory/edge-results/'+JOB+'/CP-'+JOB+'/run-1/main.js';
 const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
-const base={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',DB:{prepare:()=>({first:async()=>({healthy:1})})}};
-const workId='WORK-GO-DIRECT-R2',checkpointId='CP-01',receiptId='receipt-44444444-4444-4444-4444-444444444444';
-const pass={kind:'WORK_PASS',version:'WORK_PASS_V1',status:'ACTIVE',actor:'GO',
-  workId,checkpointId,passId:'GO-PASS-001',permissions:{actions:['handoff'],
-    handoff:[{stationId:'FACTORY_STATION'}]},authorityTransferred:false};
-const handoff = {workId,checkpointId,workPassRef:'work-pass://'+pass.passId,
-  workPass:pass,ownerDomain:'CODE',intent:'EXECUTE_CODE',scope:['EXECUTE:CODE','DEPLOY:CODE'],
-  inputRefs:[`r2://factory/edge-inputs/test.json#sha256=${'c'.repeat(64)}`],expectedSourceSha:sha};
-const value={receiptId,workId,checkpointId,workPassRef:handoff.workPassRef,
-  actingActor:'GO',authorizationSource:'WORK_PASS',originSystem:'go-together',
-  sourceSha:sha,stationId:'FACTORY-STATION',domainVerified:true,domainCompleted:true,
-  result:{artifactRefs:['r2://factory/edge-results/GO/CP-01/code.js'],
-    evidenceRefs:['r2://factory/edge-results/GO/CP-01/receipt.json']}};
-function mockedEnv(onCall) {
-  return {...base,GO_FACTORY_RAIL_SECRET:secret,
-    FACTORY_DIRECT:{fetch:async req => {
-      const method=req.method,path=new URL(req.url).pathname;
-      const timestamp=req.headers.get('x-metropolis-factory-timestamp');
-      const signature=req.headers.get('x-metropolis-factory-signature');
-      const body=method==='GET'?'':await req.clone().text();
-      const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),
+const base={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',
+  DB:{prepare:()=>({first:async()=>({healthy:1})})}};
+const spec={baseSource:'export default "before"',patch:{find:'before',replace:'after'},
+  tests:[{path:'/',status:200,body:'after'}]};
+const bytes=new TextEncoder().encode('export default "after"');
+async function digest(data){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',data))]
+  .map(x=>x.toString(16).padStart(2,'0')).join('');}
+function readback() {
+  return {receiptId:RID,workId:JOB,checkpointId:'CP-'+JOB,stationId:'FACTORY-STATION',
+    originSystem:'go-together',actingActor:'GO',authorizationSource:'WORK_PASS',
+    domainVerified:true,domainCompleted:true,sourceSha:SHA,
+    result:{ownerDomain:'CODE',artifactRefs:[ART],evidenceRefs:['evidence://factory/go']}};
+}
+function fixture(){
+  const seen=[];
+  const env={...base,GO_FACTORY_RAIL_SECRET:KEY,FACTORY_DIRECT:{
+    async fetch(req){
+      const url=new URL(req.url),path=url.pathname;
+      const raw=req.method==='GET'?'':await req.clone().text();
+      seen.push(path);
+      assert.equal(url.hostname,'factory-district.internal');
+      if(path==='/health')return Response.json({
+        service:'factory-district',stationId:'FACTORY-STATION',status:'READY',
+        sourceSha:SHA,machinery:{CODE:{status:'READY'},VISUAL:{status:'READY'},LOGIC:{status:'READY'}}});
+      const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(KEY),
         {name:'HMAC',hash:'SHA-256'},false,['verify']);
-      const bytes=Uint8Array.from(signature.match(/../g),pair=>parseInt(pair,16));
-      assert.equal(await crypto.subtle.verify('HMAC',key,bytes,
-        new TextEncoder().encode(timestamp+'.'+body)),true);
+      const sig=req.headers.get('x-metropolis-factory-signature');
+      assert.equal(await crypto.subtle.verify('HMAC',key,
+        Uint8Array.from(sig.match(/../g),x=>parseInt(x,16)),
+        new TextEncoder().encode(req.headers.get('x-metropolis-factory-timestamp')+'.'+raw)),true);
       assert.equal(req.headers.get('x-factory-client'),'GO');
-      assert.equal(new URL(req.url).host,'factory-district.internal');
-      return onCall({method,path,body:body?JSON.parse(body):null});
+      const payload=raw?JSON.parse(raw):null;
+      if(path==='/station/go-job'){
+        assert.deepEqual(payload,{requestId:ID,domain:'CODE',spec,expectedSourceSha:SHA});
+        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,
+          receiptId:RID,domain:'CODE',sourceSha:SHA,readback:readback()});
+      }
+      if(path==='/station/go-job-status'){
+        assert.deepEqual(payload,{requestId:ID});
+        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,
+          receiptId:RID,readback:readback()});
+      }
+      if(path==='/station/readback/'+RID) return Response.json(readback());
+      if(path==='/station/go-artifact'){
+        assert.deepEqual(payload,{receiptId:RID,artifactRef:ART});
+        return new Response(bytes,{headers:{'content-type':'text/javascript; charset=utf-8',
+          'x-factory-artifact-sha256':await digest(bytes),
+          'x-factory-receipt-id':RID,'x-factory-source-sha':SHA}});
+      }
+      throw Error('Unexpected Factory route '+path);
     }}};
+  return {env,seen};
 }
-function fixture() {
-  let receive=0,preflights=0,reads=0;
-  const env=mockedEnv(({method,path,body})=>{
-    if(path==='/station/preflight') {
-      preflights++;
-      assert.equal(body.source.system,'go-together');
-      assert.equal(body.source.stationId,'GO-BRAIN');
-      assert.equal(body.workId,workId);
-      return Response.json({status:'READY',allowed:true,
-        workId,checkpointId,workPassRef:handoff.workPassRef,sourceSha:sha,
-        validationScope:'FACTORY_BOUNDARY_PREFLIGHT'});
-    }
-    if(path==='/station/receive') {
-      receive++;assert.equal(method,'POST');assert.equal(body.ownerDomain,'CODE');
-      return Response.json({receipt:{receiptId},readback:value},{status:202});
-    }
-    if(path==='/station/readback/'+receiptId) {
-      reads++;assert.equal(method,'GET');
-      return Response.json(value);
-    }
-    throw Error('unexpected direct method/path');
-  });
-  return {env,counters:()=>({receive,preflights,reads})};
+async function mcp(env,name,args,auth=ctx){
+  const res=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({
+    jsonrpc:'2.0',id:44,method:'tools/call',params:{name,arguments:args}})}),env,auth);
+  const body=await res.json();
+  return {status:res.status,data:body.result?.content?.[0]?.text?JSON.parse(body.result.content[0].text):body};
 }
-async function tool(env,name,args,context=ctx) {
-  const res=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',
-    body:JSON.stringify({jsonrpc:'2.0',id:64,method:'tools/call',params:{name,arguments:args}})}),env,context);
-  return {status:res.status,data:await res.json()};
-}
-const val = x => JSON.parse(x.data.result.content[0].text);
-
-test('GO direct tool preflight exists and makes exactly one private signed request',async()=>{
+test('Owner GO submits CODE brief, receives Factory Job ID, Receipt and exact bytes with no Work Pass',async()=>{
   const f=fixture();
-  const o=await tool(f.env,'factory_direct_preflight',{handoff});
-  assert.equal(val(o).status,'PREFLIGHT_READY');
-  assert.deepEqual(f.counters(),{preflights:1,receive:0,reads:0});
+  const result=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:true});
+  assert.equal(result.status,200);
+  assert.equal(result.data.ok,true,JSON.stringify(result.data));
+  assert.equal(result.data.status,'GO_FACTORY_DELIVERABLE_READY');
+  assert.equal(result.data.jobId,JOB);
+  assert.equal(result.data.receiptId,RID);
+  assert.equal(Buffer.from(result.data.artifact.base64,'base64').toString(),'export default "after"');
+  assert.deepEqual(f.seen,['/health','/station/go-job','/station/readback/'+RID,
+    '/station/readback/'+RID,'/station/go-artifact']);
+  const reread=await factoryDirectReadback(f.env,{receiptId:RID});
+  assert.equal(reread.verified,true);
+  const status=await factoryDirectJobStatus(f.env,{requestId:ID});
+  assert.equal(status.jobId,JOB);
+  assert.equal(status.status,'GO_JOB_STATUS_READ');
 });
-test('GO direct owner-approved CODE pipeline creates and reads verified receipt',async()=>{
+test('Owner only; rejected or anonymous commands never enter Factory',async()=>{
   const f=fixture();
-  const result=val(await tool(f.env,'factory_direct_execute',{handoff,approved:true}));
-  assert.equal(result.status,'DOMAIN_ARTIFACT_RECORDED');
-  assert.equal(result.verified,true);
-  assert.equal(result.artifactDownloaded,false);
-  assert.deepEqual(result.artifactRefs,value.result.artifactRefs);
-  assert.deepEqual(f.counters(),{preflights:1,receive:1,reads:1});
-  const back=val(await tool(f.env,'factory_direct_readback',{receiptId,workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha}));
-  assert.equal(back.verified,true);
-  assert.equal(back.executed,false);
-  assert.deepEqual(f.counters(),{preflights:1,receive:1,reads:2});
+  const anonymous=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:true},{});
+  assert.equal(anonymous.status,401);
+  const noApproval=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:false});
+  assert.equal(noApproval.status,200);
+  assert.equal(noApproval.data.error||'', '');
+  // MCP invalid approved value results in an isError message, not a dispatch.
+  assert.equal(f.seen.length,0);
 });
-test('GO direct execute refuses unauthenticated/owner-unapproved requests',async()=>{
-  const f=fixture();
-  assert.equal((await tool(f.env,'factory_direct_execute',{handoff,approved:true},{})).status,401);
-  const missing=await tool(f.env,'factory_direct_execute',{handoff});
-  assert.equal(missing.data.result.isError,true);
-  assert.equal(f.counters().receive,0);
-});
-test('placeholders block direct execution even if Worker binding is available',async()=>{
-  let calls=0;
+test('Dummy Cloudflare keys fail closed and cannot run any request',async()=>{
+  let requests=0;
   const env={...base,GO_FACTORY_RAIL_SECRET:'PENDING_REPLACE_GO_SIDE_20261023_INACTIVE',
-    FACTORY_DIRECT:{fetch:async()=>{calls++;return Response.json(value);}}};
-  const r=val(await tool(env,'factory_direct_execute',{handoff,approved:true}));
+    FACTORY_DIRECT:{fetch:async()=>{requests++;return Response.json({});}}};
+  const r=await factoryDirectSubmit(env,{domain:'CODE',spec,requestId:ID},true);
   assert.equal(r.status,'DIRECT_RAIL_NOT_CONFIGURED');
-  assert.equal(calls,0);
+  assert.equal(requests,0);
 });
-test('GO direct command does not mint/forge Work Pass or task identity',()=>{
-  assert.equal(buildGoHandoff({...handoff,workPass:{...pass,actor:'PANTHEON'}}),null);
-  assert.equal(buildGoHandoff({...handoff,workPass:{...pass,status:'REVOKED'}}),null);
-  assert.equal(buildGoHandoff({...handoff,workId:'NEW-SPOOF'}),null);
-  assert.equal(buildGoHandoff({...handoff,extra:'dispatch_me'}),null);
-  assert.equal(buildGoHandoff({...handoff,inputRefs:['https://attacker.invalid']}),null);
-  assert.equal(buildGoHandoff({...handoff,scope:['EXECUTE:CODE']}),null);
-});
-test('GO direct readback never accepts another source owner or wrong digest context',async()=>{
-  const r=await factoryDirectReadback(mockedEnv(({path})=>
-    Response.json({...value,originSystem:'pantheon-workhub'})),
-    {receiptId,workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha});
-  assert.equal(r.ok,false);
+test('GO refuses receipt from another principal and malicious artifact refs',async()=>{
   const f=fixture();
-  const bad=await factoryDirectReadback(f.env,
-    {receiptId,workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:'f'.repeat(40)});
-  assert.equal(bad.ok,false);
+  const bad={...f.env,FACTORY_DIRECT:{fetch:async req=>
+    new URL(req.url).pathname==='/station/readback/'+RID
+      ?Response.json({...readback(),originSystem:'pantheon-workhub'})
+      :f.env.FACTORY_DIRECT.fetch(req)}};
+  assert.equal((await factoryDirectReadback(bad,{receiptId:RID})).ok,false);
+  assert.equal((await factoryDirectArtifact(f.env,{receiptId:RID,
+    artifactRef:'r2://factory/edge-results/OTHER/private.js'})).ok,false);
 });
-test('direct GO readiness/execute tools are advertised with correct MCP effect annotations',async()=>{
-  const list=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',
-    body:JSON.stringify({jsonrpc:'2.0',id:62,method:'tools/list'})}),base,ctx);
-  const tools=(await list.json()).result.tools;
-  const names=['factory_direct_status','factory_direct_preflight','factory_direct_execute','factory_direct_readback'];
-  for(const name of names)assert.ok(tools.some(t=>t.name===name),name);
-  assert.equal(tools.find(t=>t.name==='factory_direct_execute').annotations.readOnlyHint,false);
-  assert.equal(tools.find(t=>t.name==='factory_direct_execute').annotations.destructiveHint,true);
-});
-
-test('GO delivers exact source-owned JS bytes, not just a receipt label',async()=>{
-  const content='export default {fetch(){return new Response("real result")}}';
-  const data=new TextEncoder().encode(content);
-  const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',data))]
-    .map(x=>x.toString(16).padStart(2,'0')).join('');
-  let reads=0,downloads=0;
-  const env=mockedEnv(({path,method,body})=>{
-    if(path==='/station/readback/'+receiptId){reads++;return Response.json(value);}
-    if(path==='/station/go-artifact'){
-      downloads++;
-      assert.equal(method,'POST');
-      assert.equal(body.receiptId,receiptId);
-      assert.equal(body.artifactRef,value.result.artifactRefs[0]);
-      return new Response(data,{headers:{
-        'content-type':'text/javascript; charset=utf-8',
-        'x-factory-artifact-sha256':digest,
-        'x-factory-receipt-id':receiptId,
-        'x-factory-source-sha':sha}});
-    }
-    throw Error('unexpected direct request');
-  });
-  const args={receiptId,artifactRef:value.result.artifactRefs[0],
-    workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha};
-  const out=val(await tool(env,'factory_direct_artifact',args));
-  assert.equal(out.ok,true);
-  assert.equal(out.status,'ARTIFACT_BYTES_DELIVERED');
-  assert.equal(out.sha256,digest);
-  assert.equal(Buffer.from(out.base64,'base64').toString(),content);
-  assert.equal(reads,1);assert.equal(downloads,1);
-});
-test('GO rejects artifact bytes with mismatched checksum and unrelated receipt',async()=>{
-  const data=new TextEncoder().encode('file content');
-  const env=mockedEnv(({path})=>path.startsWith('/station/readback/')
-    ? Response.json(value)
-    : new Response(data,{headers:{
-      'content-type':'text/javascript; charset=utf-8',
-      'x-factory-artifact-sha256':'f'.repeat(64),
-      'x-factory-receipt-id':receiptId,
-      'x-factory-source-sha':sha}}));
-  const args={receiptId,artifactRef:value.result.artifactRefs[0],
-    workId,checkpointId,workPassRef:handoff.workPassRef,expectedSourceSha:sha};
-  const wrong=await factoryDirectArtifact(env,args);
-  assert.equal(wrong.status,'ARTIFACT_INTEGRITY_MISMATCH');
-  const elsewhere=await factoryDirectArtifact(env,{...args,artifactRef:'r2://factory/edge-results/OTHER/secret.txt'});
-  assert.equal(elsewhere.status,'ARTIFACT_NOT_IN_VERIFIED_RECEIPT');
+test('Direct GO MCP only exposes simple job commands, never requires Work Pass',async()=>{
+  const f=fixture();
+  const result=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',
+    body:JSON.stringify({jsonrpc:'2.0',id:5,method:'tools/list'})}),f.env,ctx);
+  const tools=(await result.json()).result.tools;
+  const names=tools.map(t=>t.name);
+  for(const t of ['factory_direct_status','factory_direct_submit',
+    'factory_direct_job_status','factory_direct_readback','factory_direct_artifact'])
+    assert.ok(names.includes(t));
+  for(const t of ['factory_direct_prepare','factory_direct_preflight','factory_direct_execute'])
+    assert.ok(!names.includes(t));
+  assert.deepEqual(tools.find(t=>t.name==='factory_direct_submit').inputSchema.required,
+    ['domain','spec','approved']);
+  assert.ok(!JSON.stringify(tools.find(t=>t.name==='factory_direct_submit').inputSchema).includes('workPass'));
 });

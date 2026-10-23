@@ -68,7 +68,9 @@ async function mcp(env,name,args,auth=ctx){
   const res=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({
     jsonrpc:'2.0',id:44,method:'tools/call',params:{name,arguments:args}})}),env,auth);
   const body=await res.json();
-  return {status:res.status,data:body.result?.content?.[0]?.text?JSON.parse(body.result.content[0].text):body};
+  const raw=body.result?.content?.[0]?.text;
+  let data=body; if(raw!==undefined){try{data=JSON.parse(raw);}catch{data=raw;}}
+  return {status:res.status,data,isError:body.result?.isError===true};
 }
 test('Owner GO submits CODE brief, receives Factory Job ID, Receipt and exact bytes with no Work Pass',async()=>{
   const f=fixture();
@@ -93,8 +95,9 @@ test('Owner only; rejected or anonymous commands never enter Factory',async()=>{
   assert.equal(anonymous.status,401);
   const noApproval=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:false});
   assert.equal(noApproval.status,200);
-  assert.equal(noApproval.data.error||'', '');
-  // MCP invalid approved value results in an isError message, not a dispatch.
+  assert.equal(noApproval.isError,true);
+  assert.equal(noApproval.data,'explicit_owner_approval_required');
+  // No dispatch when owner approval is not explicit.
   assert.equal(f.seen.length,0);
 });
 test('Dummy Cloudflare keys fail closed and cannot run any request',async()=>{

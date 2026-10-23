@@ -96,48 +96,27 @@ using its current safe routes during the draft.
 No merge, production source deployment or direct Factory job has been caused
 by this draft.
 
-## Remaining product work / owner acceptance
+## WORK completion (current phase)
 
-1. Connect GO to the legitimate Work/Checkpoint/Work Pass issuer and actual
-   production inputRefs. The two draft Workers currently **require** an existing
-   active GO Work Pass rather than fabricating one from a PANTHEON D1 task.
-2. With BIG's matching real secret in both existing Cloudflare slots, deploy
-   Factory PR #43 and GO PR #12 as a compatible pair (preserve the current
-   source identities, secrets, storage and bindings). Source-key placeholders
-   remain inactive until replacement. Do not merge just to get a green check.
-3. Invoke a real bounded CODE and VISUAL job via GO, retrieve JS/PNG bytes,
-   check digest and actual usability, and repeat readback without rerunning.
-   LOGIC arithmetic requires a separate real LOGIC computation runner; the
-   present LOGIC capability is only training-bench placement.
-4. After actual GO job and artifact acceptance, shift the normal command path
-   away from PANTHEON while keeping its metadata, receipts and data transport.
+GO-to-Factory direct command source is built as one operating path:
 
-Paired CI on both draft heads uses synthetic 64-hex keys and fake machine
-providers. Green CI verifies the protocol modules and receipt checks, not a
-live owner credential or production artifacts.
+- Owner-authenticated GO accepts a real team-provided CITY_HALL Work Pass;
+- GO prepares a deterministic CODE or VISUAL input package in Factory R2;
+- GO submits the corresponding signed and scoped machine operation over its
+  private FACTORY_DIRECT Service Binding (no PANTHEON dispatch hop);
+- Factory processes the job through its existing machinery/providers;
+- GO retrieves the exact Factory receipt, JS/PNG bytes, SHA256 and evidence.
 
-## Completed WORK implementation in this production slice
+The legacy PANTHEON path is preserved for existing tasks and receipt/data exchange.
+LOGIC currently supports training-bench placement only; the product does
+not imply a general computation machine or imaginary Factory mapping.
 
-- The single GO owner command `factory_direct_submit({work,spec,approved:true})`
-  now packages a real bounded CODE or VISUAL brief, sends the job over private
-  signed Factory rail, checks receipt/source/actor, reads the returned artifact,
-  and returns real MIME/byte count/SHA256/base64 rather than just status text.
-- `factory_direct_prepare` creates immutable content-addressed
-  `r2://factory/edge-inputs/go-<sha256>.json#sha256=<sha256>` packages in
-  Factory's existing R2 store. The package includes exact Work and Checkpoint
-  and is read by existing CODE or VISUAL machine providers. It does not run
-  machinery on its own.
-- Only a genuine active GO Work Pass issued by `CITY_HALL` and matching Work
-  identity can prepare the input. GO Brain does **not** create a second Work
-  authority or silently reclassify old PANTHEON tasks.
-- The existing, supported CODE scope remains a bounded JavaScript edge Worker
-  source patch with explicit HTTP behavior assertions. VISUAL supports a
-  static HTML card exported as PNG. This product is not a general Node project
-  executor or arbitrary generative image pipeline.
-- PANTHEON's role remains data/ledger/receipt transport. Its live command
-  path is retained for old tasks until the direct handoff is usable, not
-  switched or forcibly migrated.
+**Completed deliverable of WORK:** paired source changes on GO PR #12 and
+Factory PR #43, with new typed GO MCP submit tool and authenticated R2 input
+and output routes. No new secret or Work ID authority introduced.
 
-This is the **WORK implementation**. User-level TEST/Debug and artifact
-acceptance are a separate follow-on phase, not a parallel blocker or an
-additional task in this build plan.
+**Not part of this WORK plan:** owner acceptance/TEST/Debug, merging or
+live cutover. Both existing Cloudflare slots remain deliberately inert dummy
+values. Real active execution requires the existing owner's genuine Work Pass,
+one matching real secret across GO/Factory, and coordinated release; the
+separate TEST handoff will evaluate live artifacts after WORK is delivered.

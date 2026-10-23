@@ -296,8 +296,9 @@ export async function factoryDirectSubmit(env,{work,spec}={},approved=false){
     ...work,intent,scope,inputRefs:[prepared.ref]
   },true);
   if(!run.ok)return {...run,preparedRef:prepared.ref};
+  const suffix=ownerDomain==='VISUAL'?'/render.png':'/main.js';
   const ref=run.artifactRefs?.find(x=>typeof x==='string'&&
-    x.startsWith('r2://factory/edge-results/'));
+    x.startsWith('r2://factory/edge-results/')&&x.endsWith(suffix));
   if(!ref)return {...fail('DOMAIN_ARTIFACT_MISSING'),receiptId:run.receiptId,preparedRef:prepared.ref};
   const file=await factoryDirectArtifact(env,{
     receiptId:run.receiptId,artifactRef:ref,workId:run.taskWorkId,

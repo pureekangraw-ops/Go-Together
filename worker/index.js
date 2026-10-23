@@ -1,6 +1,6 @@
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {createFactoryReport} from '../portable-factory-report.mjs';
-import {factoryDirectStatus, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact} from './factory-direct.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
 const SOURCE_SHA='__SOURCE_SHA__';
@@ -104,6 +104,7 @@ const tools=[
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
+{name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG), or LOGIC trainee placement; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
   domain:{type:'string',enum:['CODE','VISUAL','LOGIC']},spec:GO_FACTORY_SPEC,
   requestId:Q,approved:{type:'boolean',const:true}
@@ -227,6 +228,7 @@ async function registeredFactoryReport(env, options) {
 
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
+if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_submit'){
  restrict(a,['domain','spec','requestId','approved']);
  if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');

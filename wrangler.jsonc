@@ -38,6 +38,11 @@
       "binding": "PANTHEON_OWNER",
       "service": "phatheon-workhub",
       "entrypoint": "OwnerBridge"
+    },
+    {
+      "binding": "PRYTANEION_DIRECT",
+      "service": "prytaneion-explorer",
+      "entrypoint": "HubDirectRead"
     }
   ]
 }

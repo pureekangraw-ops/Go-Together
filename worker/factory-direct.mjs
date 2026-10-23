@@ -136,7 +136,7 @@ function sameReceipt(r,handoff,receiptId) {
   return r?.receiptId===receiptId && r.workId===handoff.workId &&
     r.checkpointId===handoff.checkpointId &&
     r.workPassRef===handoff.workPassRef &&
-    r.actingActor==='GO' && r.authorizationSource==='WORK_PASS' &&
+    r.actingActor==='GO' && r.authorizationSource==='WORK_PASS' && r.originSystem==='go-together' &&
     r.sourceSha===handoff.expectedSourceSha && r.stationId==='FACTORY-STATION';
 }
 export async function factoryDirectPreflight(env,args={}) {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../worker/index.js";
+import worker from "./hub-fixture.mjs";
 import {observatoryDirect} from "../worker/observatory-direct.mjs";
 const ROOT="https://go-together.pureekangraw.workers.dev";
 const owner={access:{aud:"aud",getIdentity:async()=>({email:"owner@example.com"})}};
@@ -13,7 +13,7 @@ test("existing Brain and Observatory tools are listed together",async()=>{
  const res=await worker.fetch(new Request(ROOT+"/mcp",{method:"POST",body:JSON.stringify({
   jsonrpc:"2.0",id:3,method:"tools/list"})}),base,owner);
  const list=(await res.json()).result.tools.map(x=>x.name);
- for(const x of ["brain_search","brain_save","pantheon_factory","observatory_session",
+ for(const x of ["brain_search","brain_save","factory_direct_status","observatory_session",
    "observatory_observe","observatory_action","observatory_run","observatory_screenshot",
    "observatory_note","observatory_job"])assert.ok(list.includes(x),x);
 });
@@ -53,3 +53,4 @@ test("explicit owner refusal from DO stays refused in GO Brain",async()=>{
  const doc=(await r.json()).result;
  assert.equal(doc.isError,true);assert.match(doc.content[0].text,/OWNER_HAS_NOT_INVITED_GO/);
 });
+

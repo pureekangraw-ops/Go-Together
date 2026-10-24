@@ -1,8 +1,8 @@
-// Mirrored source-owned provider schema; paired integration checks exact equality.
-export const WORKSPACE_TOOLS=[
+// Paired provider schemas; equality checked by workspace-hub.integration.mjs.
+export const WORKSPACE_TOOLS = [
   {
     "name": "google_workspace_read",
-    "description": "Read one configured work checkpoint or exact version; no execution.",
+    "description": "Read visible prefix or exact version, never assert latest. Pass minimumVersion from a known receipt to prevent regression; no execution.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -12,6 +12,10 @@ export const WORKSPACE_TOOLS=[
         "version": {
           "type": "integer",
           "minimum": 1
+        },
+        "minimumVersion": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -25,7 +29,7 @@ export const WORKSPACE_TOOLS=[
   },
   {
     "name": "google_workspace_receipt",
-    "description": "Reconcile an exact continuity write request. A stored receipt does not prove execution.",
+    "description": "Reconcile an exact continuity write request. An invisible request is UNKNOWN, not absent. A stored receipt does not prove execution.",
     "inputSchema": {
       "type": "object",
       "properties": {

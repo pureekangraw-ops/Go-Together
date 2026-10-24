@@ -16,3 +16,9 @@ test('Workspace source retry IDs stay in payload; fresh transport IDs allow reco
  await hubTool(env,'google_workspace_receipt',{writeRequestId:'one'});await hubTool(env,'google_workspace_receipt',{writeRequestId:'one'});
  assert.notEqual(sent[0].messageId,sent[1].messageId);assert.equal(sent[0].payload.writeRequestId,sent[1].payload.writeRequestId);assert.notEqual(sent[2].messageId,sent[3].messageId);assert.ok(sent.every(x=>x.connectorId==='google'));
 });
+test('Workspace read advertises and forwards known receipt lower bound',async()=>{
+ assert.deepEqual(WORKSPACE_TOOLS.find(t=>t.name==='google_workspace_read').inputSchema.properties.minimumVersion,{type:'integer',minimum:0});
+ let sent;const env={HUB_V2:{relay:async x=>{sent=x;return {receipt:{state:'RESPONDED'},response:{body:JSON.stringify({result:{content:[{type:'text',text:'{"status":"UNKNOWN"}'}]}})}}}}};
+ const result=await hubTool(env,'google_workspace_read',{workId:'WORK-ONE',minimumVersion:2});
+ assert.equal(sent.payload.minimumVersion,2);assert.equal(result.status,'UNKNOWN');
+});

@@ -10,3 +10,5 @@ One configured work has logical writer labels, version and fencing epoch. Labels
 Tests: node --test tests/*.test.mjs. Paired provider integration compares these schemas and exercises this actual GO handler through pinned Hub source and provider against synthetic SQLite-backed Drive HTTP responses. That is fixture proof, not live Drive/GO/Atlas acceptance. No credentials, live configuration, existing Drive content or deployment was changed.
 
 Before live use: independent review of both stacked candidates, approved deployment preserving cutover configuration, confirmation of existing Drive write capability, and explicit authorization for one synthetic work's append-only files/configuration. No new scopes or credentials are implied.
+
+Review correction: a Drive404 does not prove absence. Reads without a version return VISIBLE_PREFIX/latest UNKNOWN. Pass minimumVersion from the last known committed receipt to reject an older prefix. Missing receipt/version is UNKNOWN, never definitely not written. Exact-version receipts verify the historical record, not the latest writer. See paired provider ambiguous404 regressions.

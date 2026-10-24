@@ -1,3 +1,4 @@
+import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {createFactoryReport} from '../portable-factory-report.mjs';
 import {factoryDirectStatus, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact} from './factory-direct.mjs';
@@ -106,7 +107,11 @@ const OBS_TOOLS=[
 {name:'observatory_job',description:'Read stored background Browser job and progress without executing anything.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
 {name:'observatory_note',description:'Send BIG a brief status note in Observatory (no private page data or credentials).',inputSchema:SCHEMA({message:{type:'string',minLength:1,maxLength:240}},['message'])}
 ];
+const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
+const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 const tools=[
+ {name:'goview_publish',description:'Publish owner-requested GO map package and verify exact remote bytes. Does not apply on Android. Preserve returned transfer ID/version/full SHA for Android preview; on uncertain outcome read exact version before retry.',inputSchema:SCHEMA({...GOVIEW_IDENTITY,package:{type:'string',maxLength:1048832}},[...GOVIEW_REQUIRED,'package'])},
+ {name:'goview_readback',description:'Read explicitly selected remote map artifact by exact version and expected full SHA-256. No listing, GPS/history collection or handset access. Handset receipt must be exported by owner.',inputSchema:SCHEMA(GOVIEW_IDENTITY,GOVIEW_REQUIRED),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},
@@ -239,6 +244,7 @@ async function registeredFactoryReport(env, options) {
 }
 
 async function toolCall(name,a,d,env){if(!a||typeof a!=='object')a={};
+if(isGoviewTool(name))return goviewDirect(env,name,a);
 if(isObservatoryTool(name))return observatoryDirect(env,name,a);
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_submit'){
@@ -333,7 +339,7 @@ async function mcp(req,env,ctx){
       {type:'text',text:JSON.stringify({ok:true,observedAt:value.result.observedAt||null})}]},isModern);
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),
       content:[{type:'text',text:JSON.stringify(value)}],
-      ...(isObservatoryTool(name)&&value?.ok===false?{isError:true}:{})},isModern);
+      ...((isObservatoryTool(name)||isGoviewTool(name))&&value?.ok===false?{isError:true}:{})},isModern);
   }catch(e){
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:e.message}],isError:true},isModern);
   }

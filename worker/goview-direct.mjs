@@ -1,4 +1,4 @@
-export const isGoviewTool=name=>['goview_publish','goview_readback'].includes(name);
+export const isGoviewTool=name=>['goview_publish','goview_readback','goview_propose_pin','goview_focus_point','goview_command_status'].includes(name);
 export async function goviewDirect(env,name,args={}) {
  if(!isGoviewTool(name))return {ok:false,status:'UNSUPPORTED'};
  if(!args||typeof args!=='object'||Array.isArray(args))return {ok:false,status:'INVALID_ARGUMENTS'};

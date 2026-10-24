@@ -53,7 +53,7 @@ test('direct status reads only fixed health route, redacts secrets, and never cl
   assert.equal(value.route,'GO_BRAIN_TO_FACTORY_DIRECT');
   assert.equal(value.readOnly,true);
   assert.equal(value.commandReady,false);
-  assert.equal(value.keyState,'PENDING_OWNER_REPLACEMENT');
+  assert.equal(value.keyState,'KEY_UNSUPPORTED_OR_PLACEHOLDER');
   assert.equal(value.machinery.CODE,'READY');
   assert.equal(value.sourceSha,'a'.repeat(40));
   assert.equal(calls,1);
@@ -65,7 +65,8 @@ test('even a correctly shaped owner key is NOT authorization or job proof',async
     GO_FACTORY_RAIL_SECRET:'f'.repeat(64),
     FACTORY_DIRECT:mockBinding(async()=>Response.json(goodHealth()))
   });
-  assert.equal(value.keyState,'KEY_FORMAT_PRESENT_NOT_AUTH_VERIFIED');
+  assert.equal(value.keyState,'KEY_PRESENT_NOT_AUTHENTICATED');
+  assert.equal(value.authStatus,'FACTORY_AUTH_RESPONSE_INVALID');
   assert.equal(value.commandReady,false);
   assert.equal(value.readOnly,true);
 });
@@ -83,4 +84,19 @@ test('absent binding, misleading 200, remote errors and extra parameters fail cl
     'factory_direct_status',{workId:'try-to-dispatch'});
   assert.equal((await res.json()).result.isError,true);
   assert.equal(called,false);
+});
+
+test('auth probe MCP is read-only, owner-only and rejects authority arguments before binding',async()=>{
+  const list=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',
+    body:JSON.stringify({jsonrpc:'2.0',id:55,method:'tools/list'})}),baseEnv,ctx);
+  const tool=(await list.json()).result.tools.find(x=>x.name==='factory_direct_auth_probe');
+  assert.ok(tool);assert.equal(tool.annotations.readOnlyHint,true);
+  assert.equal(tool.annotations.destructiveHint,false);
+  let calls=0;
+  const env={...baseEnv,GO_FACTORY_RAIL_SECRET:'b'.repeat(64),
+    FACTORY_DIRECT:mockBinding(async()=>{calls++;throw Error('unexpected call');})};
+  assert.equal((await mcp(env,'factory_direct_auth_probe',{},{})).status,401);
+  const extra=await mcp(env,'factory_direct_auth_probe',{approved:true});
+  assert.equal((await extra.json()).result.isError,true);
+  assert.equal(calls,0);
 });

@@ -4,7 +4,16 @@ const HOST='https://factory-district.internal', PROTO='METROPOLIS_FACTORY_STATIO
 const JOB=/^GOJOB-[a-f0-9]{32}$/,RECEIPT=/^receipt-[A-Za-z0-9-]{8,80}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const failure=(status,extra={})=>({ok:false,status,executed:false,...extra});
-const configured=e=>/^[a-f0-9]{64}$/i.test(e?.GO_FACTORY_RAIL_SECRET||'')
+export const GO_AUTH_PROBE_PURPOSE='GO_FACTORY_AUTH_PROBE_V1';
+export function goRailSecretConfigured(secret){
+  if(typeof secret!=='string'||secret!==secret.trim()||
+    /[\u0000-\u001f\u007f]/.test(secret)||
+    /^(?:PENDING[_-]|PLACEHOLDER|DUMMY|CHANGE[_-]?ME|REPLACE[_-]?ME|TEST[_-]?ONLY)/i.test(secret))
+    return false;
+  const bytes=new TextEncoder().encode(secret).length;
+  return bytes>=32&&bytes<=1024;
+}
+const configured=e=>goRailSecretConfigured(e?.GO_FACTORY_RAIL_SECRET)
   &&typeof e?.FACTORY_DIRECT?.fetch==='function';
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
 async function digest(buffer){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',buffer))].map(x=>x.toString(16).padStart(2,'0')).join('');}
@@ -29,26 +38,94 @@ function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
   v.checkpointId==='CP-'+v.workId&&v.originSystem==='go-together'&&
   v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
   v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
-export async function factoryDirectStatus(env={}){
-  const baseline={route:'GO_BRAIN_TO_FACTORY_DIRECT',readOnly:true,
-    keyState:/^[a-f0-9]{64}$/i.test(env.GO_FACTORY_RAIL_SECRET||'')
-      ?'KEY_FORMAT_PRESENT_NOT_AUTH_VERIFIED':'PENDING_OWNER_REPLACEMENT',
-    commandReady:false};
-  if(typeof env.FACTORY_DIRECT?.fetch!=='function')return {...baseline,...failure('SERVICE_BINDING_NOT_CONFIGURED')};
+async function boundedProbeJson(response){
+  if(!response.body)return null;
+  const reader=response.body.getReader(),chunks=[];
+  let size=0;
   try{
-    const r=await env.FACTORY_DIRECT.fetch(new Request(HOST+'/health'));
-    if(!r.ok)return {...baseline,...failure('FACTORY_HTTP_ERROR',{httpStatus:r.status})};
-    const x=await r.json();
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      size+=value.byteLength;
+      if(size>4096){await reader.cancel();return null;}
+      chunks.push(value);
+    }
+    const bytes=new Uint8Array(size);let offset=0;
+    for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }catch{return null;}finally{reader.releaseLock();}
+}
+// Challenge is HMAC authenticated both directions; it is never a work
+// request and never returns an HMAC proof or secret material to MCP callers.
+export async function factoryDirectAuthProbe(env={}){
+  const base={readOnly:true,executed:false,authenticated:false,
+    transport:'CLOUDFLARE_PRIVATE_SERVICE_BINDING',commandReady:false};
+  if(typeof env.FACTORY_DIRECT?.fetch!=='function')
+    return {...base,...failure('SERVICE_BINDING_NOT_CONFIGURED')};
+  if(!goRailSecretConfigured(env.GO_FACTORY_RAIL_SECRET))
+    return {...base,...failure('GO_KEY_UNSUPPORTED_OR_PLACEHOLDER')};
+  try{
+    const nonce=[...crypto.getRandomValues(new Uint8Array(16))]
+      .map(x=>x.toString(16).padStart(2,'0')).join('');
+    const response=await signed(env,'POST','/station/go-auth-probe',
+      {purpose:GO_AUTH_PROBE_PURPOSE,nonce});
+    if(!response.ok){
+      const error=response.status===503?await boundedProbeJson(response):null;
+      const status=response.status===401?'FACTORY_SIGNATURE_REJECTED'
+        :response.status===503&&error?.reason==='GO_FACTORY_RAIL_KEY_NOT_CONFIGURED'
+          ?'FACTORY_GO_KEY_NOT_CONFIGURED'
+        :response.status===503&&error?.reason==='DURABLE_STORAGE_NOT_CONFIGURED'
+          ?'FACTORY_STORAGE_NOT_CONFIGURED'
+        :response.status===404?'FACTORY_AUTH_PROBE_NOT_DEPLOYED'
+        :'FACTORY_AUTH_PROBE_REJECTED';
+      return {...base,...failure(status,{upstreamStatus:response.status})};
+    }
+    const probe=await boundedProbeJson(response);
+    if(probe?.status!=='AUTHENTICATED'||probe.service!=='factory-district'||
+      probe.stationId!=='FACTORY-STATION'||probe.nonce!==nonce||
+      probe.readOnly!==true||probe.executed!==false||
+      !/^[a-f0-9]{40}$/.test(probe.sourceSha||'')||
+      !/^[a-f0-9]{64}$/.test(probe.proof||''))
+      return {...base,...failure('FACTORY_AUTH_RESPONSE_INVALID')};
+    const key=await crypto.subtle.importKey('raw',
+      new TextEncoder().encode(env.GO_FACTORY_RAIL_SECRET),
+      {name:'HMAC',hash:'SHA-256'},false,['verify']);
+    const bytes=Uint8Array.from(probe.proof.match(/../g),h=>parseInt(h,16));
+    const msg=GO_AUTH_PROBE_PURPOSE+'\n'+nonce+'\n'+probe.sourceSha+'\nFACTORY-STATION';
+    const verified=await crypto.subtle.verify('HMAC',key,bytes,new TextEncoder().encode(msg));
+    if(!verified)return {...base,...failure('FACTORY_AUTH_PROOF_MISMATCH')};
+    return {...base,ok:true,status:'AUTHENTICATED',authenticated:true,
+      keyState:'AUTHENTICATED',sourceSha:probe.sourceSha};
+  }catch{return {...base,...failure('FACTORY_AUTH_PROBE_UNAVAILABLE')};}
+}
+export async function factoryDirectStatus(env={}){
+  const base={route:'GO_BRAIN_TO_FACTORY_DIRECT',readOnly:true,
+    keyState:goRailSecretConfigured(env.GO_FACTORY_RAIL_SECRET)
+      ?'KEY_PRESENT_NOT_AUTHENTICATED':'KEY_UNSUPPORTED_OR_PLACEHOLDER',
+    commandReady:false};
+  if(typeof env.FACTORY_DIRECT?.fetch!=='function')
+    return {...base,...failure('SERVICE_BINDING_NOT_CONFIGURED')};
+  try{
+    const response=await env.FACTORY_DIRECT.fetch(new Request(HOST+'/health'));
+    if(!response.ok)return {...base,...failure('FACTORY_HTTP_ERROR',{httpStatus:response.status})};
+    const x=await response.json();
     if(x?.service!=='factory-district'||x.stationId!=='FACTORY-STATION')
-      return {...baseline,...failure('FACTORY_IDENTITY_MISMATCH')};
-    const machines=Object.fromEntries(['CODE','VISUAL','LOGIC'].map(d=>
-      [d,x.machinery?.[d]?.status==='READY'?'READY':'UNKNOWN']));
-    return {...baseline,ok:true,status:'CONNECTED',
-      runtime:x.status==='READY'?'READY':'UNKNOWN',
+      return {...base,...failure('FACTORY_IDENTITY_MISMATCH')};
+    const machinery=Object.fromEntries(['CODE','VISUAL','LOGIC'].map(domain=>[
+      domain,x.machinery?.[domain]?.status==='READY'?'READY':'UNKNOWN']));
+    const probe=await factoryDirectAuthProbe(env);
+    const authenticated=probe.authenticated===true && probe.sourceSha===x.sourceSha;
+    const up=x.status==='READY'&&x.storage?.status==='READY'&&
+      x.transport?.status==='READY'&&Object.values(machinery).some(v=>v==='READY');
+    return {...base,ok:true,status:'CONNECTED',runtime:x.status==='READY'?'READY':'UNKNOWN',
       sourceSha:/^[a-f0-9]{40}$/.test(x.sourceSha||'')?x.sourceSha:null,
-      machinery:machines,
-      capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',LOGIC:'DWARF_TRAINING_ONLY'}};
-  }catch{return {...baseline,...failure('DIRECT_FACTORY_UNAVAILABLE')};}
+      machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',
+        LOGIC:'DWARF_TRAINING_ONLY'},
+      keyState:authenticated?'AUTHENTICATED':base.keyState,
+      authStatus:probe.authenticated===true&&!authenticated
+        ?'FACTORY_AUTH_SOURCE_MISMATCH':probe.status,
+      commandReady:authenticated&&up};
+  }catch{return {...base,...failure('DIRECT_FACTORY_UNAVAILABLE')};}
 }
 export async function factoryDirectReadback(env,{receiptId}={}){
   if(!RECEIPT.test(receiptId||''))return failure('RECEIPT_ID_INVALID');
@@ -115,6 +192,8 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
     const h=await factoryDirectStatus(env);
     if(!h.ok||!h.sourceSha||h.runtime!=='READY'||h.machinery?.[domain]!=='READY')
       return failure('FACTORY_NOT_READY',{requestId:id});
+    if(h.commandReady!==true)
+      return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id,authStatus:h.authStatus});
     const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha};
     if(new TextEncoder().encode(JSON.stringify(input)).length>65536)
       return failure('GO_JOB_TOO_LARGE',{requestId:id});

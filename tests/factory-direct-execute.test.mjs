@@ -34,15 +34,24 @@ function fixture(){
       assert.equal(url.hostname,'factory-district.internal');
       if(path==='/health')return Response.json({
         service:'factory-district',stationId:'FACTORY-STATION',status:'READY',
-        sourceSha:SHA,machinery:{CODE:{status:'READY'},VISUAL:{status:'READY'},LOGIC:{status:'READY'}}});
+        sourceSha:SHA,storage:{status:'READY'},transport:{status:'READY'},machinery:{CODE:{status:'READY'},VISUAL:{status:'READY'},LOGIC:{status:'READY'}}});
       const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(KEY),
-        {name:'HMAC',hash:'SHA-256'},false,['verify']);
+        {name:'HMAC',hash:'SHA-256'},false,['verify','sign']);
       const sig=req.headers.get('x-metropolis-factory-signature');
       assert.equal(await crypto.subtle.verify('HMAC',key,
         Uint8Array.from(sig.match(/../g),x=>parseInt(x,16)),
         new TextEncoder().encode(req.headers.get('x-metropolis-factory-timestamp')+'.'+raw)),true);
       assert.equal(req.headers.get('x-factory-client'),'GO');
       const payload=raw?JSON.parse(raw):null;
+      if(path==='/station/go-auth-probe'){
+        assert.equal(payload.purpose,'GO_FACTORY_AUTH_PROBE_V1');
+        assert.match(payload.nonce,/^[a-f0-9]{32}$/);
+        const message='GO_FACTORY_AUTH_PROBE_V1\n'+payload.nonce+'\n'+SHA+'\nFACTORY-STATION';
+        const proof=Buffer.from(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(message))).toString('hex');
+        return Response.json({status:'AUTHENTICATED',service:'factory-district',
+          stationId:'FACTORY-STATION',sourceSha:SHA,nonce:payload.nonce,proof,
+          readOnly:true,executed:false});
+      }
       if(path==='/station/go-job'){
         assert.deepEqual(payload,{requestId:ID,domain:'CODE',spec,expectedSourceSha:SHA});
         return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,
@@ -81,7 +90,7 @@ test('Owner GO submits CODE brief, receives Factory Job ID, Receipt and exact by
   assert.equal(result.data.jobId,JOB);
   assert.equal(result.data.receiptId,RID);
   assert.equal(Buffer.from(result.data.artifact.base64,'base64').toString(),'export default "after"');
-  assert.deepEqual(f.seen,['/health','/station/go-job','/station/readback/'+RID,
+  assert.deepEqual(f.seen,['/health','/station/go-auth-probe','/station/go-job','/station/readback/'+RID,
     '/station/readback/'+RID,'/station/go-artifact']);
   const reread=await factoryDirectReadback(f.env,{receiptId:RID});
   assert.equal(reread.verified,true);

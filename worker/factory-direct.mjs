@@ -38,6 +38,23 @@ function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
   v.checkpointId==='CP-'+v.workId&&v.originSystem==='go-together'&&
   v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
   v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
+async function boundedProbeJson(response){
+  if(!response.body)return null;
+  const reader=response.body.getReader(),chunks=[];
+  let size=0;
+  try{
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      size+=value.byteLength;
+      if(size>4096){await reader.cancel();return null;}
+      chunks.push(value);
+    }
+    const bytes=new Uint8Array(size);let offset=0;
+    for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }catch{return null;}finally{reader.releaseLock();}
+}
 // Challenge is HMAC authenticated both directions; it is never a work
 // request and never returns an HMAC proof or secret material to MCP callers.
 export async function factoryDirectAuthProbe(env={}){
@@ -53,15 +70,17 @@ export async function factoryDirectAuthProbe(env={}){
     const response=await signed(env,'POST','/station/go-auth-probe',
       {purpose:GO_AUTH_PROBE_PURPOSE,nonce});
     if(!response.ok){
+      const error=response.status===503?await boundedProbeJson(response):null;
       const status=response.status===401?'FACTORY_SIGNATURE_REJECTED'
-        :response.status===503?'FACTORY_GO_KEY_NOT_CONFIGURED'
+        :response.status===503&&error?.reason==='GO_FACTORY_RAIL_KEY_NOT_CONFIGURED'
+          ?'FACTORY_GO_KEY_NOT_CONFIGURED'
+        :response.status===503&&error?.reason==='DURABLE_STORAGE_NOT_CONFIGURED'
+          ?'FACTORY_STORAGE_NOT_CONFIGURED'
         :response.status===404?'FACTORY_AUTH_PROBE_NOT_DEPLOYED'
         :'FACTORY_AUTH_PROBE_REJECTED';
       return {...base,...failure(status,{upstreamStatus:response.status})};
     }
-    const raw=await response.text();
-    if(raw.length>4096)return {...base,...failure('FACTORY_AUTH_RESPONSE_INVALID')};
-    let probe;try{probe=JSON.parse(raw);}catch{return {...base,...failure('FACTORY_AUTH_RESPONSE_INVALID')};}
+    const probe=await boundedProbeJson(response);
     if(probe?.status!=='AUTHENTICATED'||probe.service!=='factory-district'||
       probe.stationId!=='FACTORY-STATION'||probe.nonce!==nonce||
       probe.readOnly!==true||probe.executed!==false||
@@ -103,7 +122,8 @@ export async function factoryDirectStatus(env={}){
       machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',
         LOGIC:'DWARF_TRAINING_ONLY'},
       keyState:authenticated?'AUTHENTICATED':base.keyState,
-      authStatus:authenticated?'AUTHENTICATED':probe.status,
+      authStatus:probe.authenticated===true&&!authenticated
+        ?'FACTORY_AUTH_SOURCE_MISMATCH':probe.status,
       commandReady:authenticated&&up};
   }catch{return {...base,...failure('DIRECT_FACTORY_UNAVAILABLE')};}
 }

@@ -17,6 +17,11 @@ const configured=e=>goRailSecretConfigured(e?.GO_FACTORY_RAIL_SECRET)
   &&typeof e?.FACTORY_DIRECT?.fetch==='function';
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
 async function digest(buffer){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',buffer))].map(x=>x.toString(16).padStart(2,'0')).join('');}
+function canonicalContent(value){
+  if(value===null||typeof value!=='object')return JSON.stringify(value);
+  if(Array.isArray(value))return '['+value.map(canonicalContent).join(',')+']';
+  return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonicalContent(value[key])).join(',')+'}';
+}
 async function signed(env,method,path,value){
   const body=value===undefined?'':JSON.stringify(value),timestamp=String(Date.now());
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.GO_FACTORY_RAIL_SECRET),
@@ -120,7 +125,8 @@ export async function factoryDirectStatus(env={}){
     return {...base,ok:true,status:'CONNECTED',runtime:x.status==='READY'?'READY':'UNKNOWN',
       sourceSha:/^[a-f0-9]{40}$/.test(x.sourceSha||'')?x.sourceSha:null,
       machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',
-        LOGIC:'DWARF_TRAINING_ONLY'},
+        LOGIC:x.machinery?.LOGIC?.genericRunner?.status==='READY'?'BOUNDED_WORKSHOP_AND_DWARF':'DWARF_TRAINING_ONLY'},
+      workshopReady:x.machinery?.LOGIC?.genericRunner?.status==='READY',
       keyState:authenticated?'AUTHENTICATED':base.keyState,
       authStatus:probe.authenticated===true&&!authenticated
         ?'FACTORY_AUTH_SOURCE_MISMATCH':probe.status,
@@ -137,7 +143,8 @@ export async function factoryDirectReadback(env,{receiptId}={}){
     return {ok:true,status:'GO_RECEIPT_READ',readOnly:true,executed:false,
       verified:x.domainVerified===true&&x.domainCompleted===true,
       jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
-      artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[]};
+      artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
+      ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{})};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
 export async function factoryDirectJobStatus(env,{requestId}={}){
@@ -157,7 +164,7 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
 }
 export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
   if(typeof artifactRef!=='string'||artifactRef.length>900||
-    !artifactRef.startsWith('r2://factory/edge-results/'))
+    !(artifactRef.startsWith('r2://factory/edge-results/')||/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(artifactRef)))
     return failure('ARTIFACT_REF_INVALID');
   const receipt=await factoryDirectReadback(env,{receiptId});
   if(!receipt.ok||!receipt.verified||!receipt.artifactRefs.includes(artifactRef))
@@ -173,8 +180,15 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
       response.headers.get('x-factory-source-sha')!==receipt.sourceSha)
       return failure('ARTIFACT_INTEGRITY_MISMATCH');
     const mime=response.headers.get('content-type');
-    if(!['image/png','text/javascript; charset=utf-8','text/html; charset=utf-8','application/octet-stream'].includes(mime))
+    if(!['image/png','text/javascript; charset=utf-8','text/html; charset=utf-8','application/octet-stream','application/json'].includes(mime))
       return failure('ARTIFACT_MIME_UNEXPECTED');
+    if(artifactRef.startsWith('r2://factory/records/logic/workshop/')) {
+      let delivery;try{delivery=JSON.parse(new TextDecoder().decode(bytes));}catch{return failure('WORKSHOP_PACKAGE_INVALID');}
+      const expected=artifactRef.split('/').at(-1);
+      if(mime!=='application/json'||delivery.artifactRef!==artifactRef||delivery.sha256!==expected||delivery.receipt?.receiptId!==receiptId||delivery.readback?.receiptId!==receiptId
+        ||delivery.readback?.workId!==receipt.jobId||delivery.readback?.domainVerified!==true||delivery.package?.workId!==receipt.jobId
+        ||delivery.package?.checkpointId!=='CP-'+receipt.jobId||await digest(new TextEncoder().encode(canonicalContent(delivery.package)))!==expected) return failure('WORKSHOP_PACKAGE_INVALID');
+    }
     const u=new Uint8Array(bytes);let bin='';
     for(let i=0;i<u.length;i+=16384)bin+=String.fromCharCode(...u.slice(i,i+16384));
     return {ok:true,status:'ARTIFACT_BYTES_DELIVERED',executed:false,readOnly:true,
@@ -194,6 +208,8 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       return failure('FACTORY_NOT_READY',{requestId:id});
     if(h.commandReady!==true)
       return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id,authStatus:h.authStatus});
+    const workshop=domain==='LOGIC'&&object(spec.workshop);
+    if(workshop&&!h.workshopReady)return failure('FACTORY_WORKSHOP_NOT_READY',{requestId:id});
     const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha};
     if(new TextEncoder().encode(JSON.stringify(input)).length>65536)
       return failure('GO_JOB_TOO_LARGE',{requestId:id});
@@ -203,11 +219,22 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       return failure('GO_JOB_EFFECT_UNVERIFIED',{requestId:id,
         jobId:JOB.test(x.jobId||'')?x.jobId:null,
         receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
-        httpStatus:r.httpStatus,reason:x.reason||x.status});
+        httpStatus:r.httpStatus,reason:x.reason||x.status,
+        ...(x.readback?.machineResult?.workshopResult?{workshopResult:x.readback.machineResult.workshopResult}:{})});
     const back=await factoryDirectReadback(env,{receiptId:x.receiptId});
     if(!back.ok||!back.verified||back.jobId!==x.jobId||
       back.sourceSha!==h.sourceSha||back.domain!==domain)
       return failure('GO_RECEIPT_UNVERIFIED',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
+    if(workshop) {
+      if(back.workshopResult?.operation!==spec.workshop.operation||back.workshopResult?.operationId!==spec.workshop.operationId||back.workshopResult?.subjectId!==spec.workshop.subjectId||back.workshopResult?.status!=='PASS') return failure('GO_WORKSHOP_RESULT_MISMATCH',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
+      const result={ok:true,status:'LOGIC_WORKSHOP_COMPLETED',requestId:id,jobId:x.jobId,receiptId:x.receiptId,sourceSha:h.sourceSha,workshopResult:back.workshopResult,executed:true,deliveredBytes:false};
+      if(spec.workshop.operation==='EXPORT_PACKAGE') {
+        const artifact=await factoryDirectArtifact(env,{receiptId:x.receiptId,artifactRef:back.workshopResult.output?.ref});
+        if(!artifact.ok)return {...artifact,requestId:id,jobId:x.jobId,receiptId:x.receiptId};
+        return {...result,artifact,deliveredBytes:true};
+      }
+      return result;
+    }
     if(domain==='LOGIC')return {ok:true,status:'LOGIC_TRAINING_PLACED',
       requestId:id,jobId:x.jobId,receiptId:x.receiptId,
       sourceSha:h.sourceSha,evidenceRefs:back.evidenceRefs,executed:true,
@@ -224,4 +251,19 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       artifact:{mime:artifact.mime,bytes:artifact.bytes,sha256:artifact.sha256,
         base64:artifact.base64},executed:true,deliveredBytes:true};
   }catch{return failure('GO_JOB_TRANSPORT_UNCERTAIN',{requestId:id});}
+}
+
+// Owner-approved input transport only; content hashing makes retries idempotent.
+export async function factoryWorkshopContent(env,{content}={},approved=false) {
+  if(approved!==true)return failure('OWNER_APPROVAL_REQUIRED');
+  try {
+    const h=await factoryDirectStatus(env);
+    if(!h.commandReady||!h.workshopReady)return failure('FACTORY_WORKSHOP_NOT_READY');
+    const body={content,expectedSourceSha:h.sourceSha};
+    if(new TextEncoder().encode(JSON.stringify(body)).length>65536)return failure('GO_WORKSHOP_CONTENT_TOO_LARGE');
+    const expected=await digest(new TextEncoder().encode(canonicalContent(content)));
+    const r=await jsonRequest(env,'POST','/station/go-workshop-content',body),x=r.data;
+    if(!r.ok||x?.status!=='WORKSHOP_CONTENT_STORED'||!/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(x.ref||'')||x.ref.split('/').at(-1)!==x.sha256||x.sha256!==expected)return failure('GO_WORKSHOP_CONTENT_UNVERIFIED',{reason:x?.reason,httpStatus:r.httpStatus});
+    return {ok:true,status:x.status,ref:x.ref,sha256:x.sha256,executed:false};
+  } catch {return failure('GO_WORKSHOP_CONTENT_UNCERTAIN');}
 }

@@ -100,3 +100,19 @@ test('auth probe MCP is read-only, owner-only and rejects authority arguments be
   assert.equal((await extra.json()).result.isError,true);
   assert.equal(calls,0);
 });
+
+test('Workshop content tool is discoverable, owner-only and explicitly approved before transport',async()=>{
+  const list=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:60,method:'tools/list'})}),baseEnv,ctx);
+  const tools=(await list.json()).result.tools;
+  const content=tools.find(x=>x.name==='factory_workshop_content');assert.ok(content);
+  assert.equal(content.annotations.readOnlyHint,false);
+  const submit=tools.find(x=>x.name==='factory_direct_submit');
+  assert.ok(submit.inputSchema.properties.spec.oneOf.some(x=>x.properties.workshop));
+  let calls=0;const env={...baseEnv,FACTORY_DIRECT:mockBinding(async()=>{calls++;throw Error('UNEXPECTED');})};
+  assert.equal((await mcp(env,'factory_workshop_content',{content:{synthetic:true},approved:true},{})).status,401);
+  const denied=await mcp(env,'factory_workshop_content',{content:{synthetic:true}});
+  assert.match(JSON.stringify(await denied.json()),/explicit_owner_approval_required/);
+  const extra=await mcp(env,'factory_workshop_content',{content:{synthetic:true},approved:true,token:'not-allowed'});
+  assert.match(JSON.stringify(await extra.json()),/unknown_field:token/);
+  assert.equal(calls,0);
+});

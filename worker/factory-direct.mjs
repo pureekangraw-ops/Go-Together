@@ -380,3 +380,53 @@ export async function factoryVisualZipChunk(env,{receiptId,artifactRef,offset,ex
     base64:x.base64,executed:false,readOnly:true};
  }catch{return failure('GO_ZIP_CHUNK_UNAVAILABLE',{receiptId});}
 }
+
+
+// Factory owns all slots and issued-key hashes. GO Brain is only an
+// owner-authenticated, HMAC-signed operator remote control, never a vault.
+// The raw random key is returned to the owner at most once and is NOT saved
+// into Brain D1, Hub journal, or an MCP tool transcript by this web-only API.
+const FACTORY_STAMP_OPERATIONS=Object.freeze({
+  list:'/station/go-key-slots',
+  register:'/station/go-key-register',
+  stamp:'/station/go-key-stamp',
+  status:'/station/go-key-status',
+  revoke:'/station/go-key-revoke'
+});
+export async function factoryKeyStamper(env,command={}){
+  if(!object(command)||typeof command.action!=='string'||
+     !Object.hasOwn(FACTORY_STAMP_OPERATIONS,command.action))
+    return failure('STAMP_OPERATION_INVALID');
+  if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED');
+  const action=command.action;
+  const body=action==='list'?{}:Object.fromEntries(
+    Object.entries(command).filter(([key])=>key!=='action'));
+  if(['register','stamp','revoke'].includes(action)&&body.approved!==true)
+    return failure('OWNER_APPROVAL_REQUIRED');
+  if(JSON.stringify(body).length>4000)return failure('STAMP_REQUEST_TOO_LARGE');
+  try{
+    const r=await jsonRequest(env,'POST',FACTORY_STAMP_OPERATIONS[action],body);
+    const value=r.data;
+    if(!r.ok||value?.ok!==true)
+      return failure('STAMP_FACTORY_DENIED',{reason:value?.reason||value?.status||'STAMP_FACTORY_UNAVAILABLE',
+        httpStatus:r.httpStatus});
+    if(action==='stamp'){
+      if(value.status==='KEY_STAMPED'){
+        if(value.secretReturned!==true||typeof value.key!=='string'||
+           !/^fsk1_[a-f0-9]{32}\.[a-f0-9]{64}$/.test(value.key)||
+           !/^[a-f0-9]{32}$/.test(value.keyId||'')||
+           value.key.split('.')[0]!=='fsk1_'+value.keyId)
+           return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
+      }else if(value.status==='ALREADY_STAMPED'){
+        if('key'in value||value.secretReturned!==false)
+          return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
+      }else return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
+    }
+    return {ok:true,...value};
+  }catch{
+    // A write may have completed despite transport loss. Do NOT retry blindly:
+    // reconcile by requestId and revoke if the one-time secret was lost.
+    return failure('STAMP_TRANSPORT_UNCERTAIN',{
+      requestId:typeof command.requestId==='string'?command.requestId:null});
+  }
+}

@@ -267,3 +267,51 @@ export async function factoryWorkshopContent(env,{content}={},approved=false) {
     return {ok:true,status:x.status,ref:x.ref,sha256:x.sha256,executed:false};
   } catch {return failure('GO_WORKSHOP_CONTENT_UNCERTAIN');}
 }
+
+
+/** Owner-approved GO -> Factory RGBA sprite-sheet upload.
+ * This is a data transport ONLY. It never invokes VISUAL machinery or
+ * declares an asset produced before a separate verified Factory job.
+ */
+export async function factoryVisualUploadStatus(env,{requestId}={}){
+ if(!UUID.test(requestId||''))return failure('GO_IMAGE_REQUEST_ID_INVALID');
+ if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId});
+ try{
+  const r=await jsonRequest(env,'POST','/station/go-asset-status',{requestId});
+  const x=r.data||{};
+  if(!r.ok||x.status!=='STORED_NOT_PROCESSED'||x.requestId!==requestId.toLowerCase()||
+     !/^[a-f0-9]{64}$/.test(x.sha256||'')||
+     x.ref!=='r2://factory/edge-source/go/'+x.sha256+'.png#sha256='+x.sha256||
+     x.executed!==false||!Number.isSafeInteger(x.bytes)||x.bytes<40||x.bytes>4*1024*1024)
+    return failure('GO_IMAGE_READBACK_UNVERIFIED',{requestId,httpStatus:r.httpStatus});
+  return {ok:true,status:'STORED_NOT_PROCESSED',requestId:x.requestId,ref:x.ref,
+    sha256:x.sha256,bytes:x.bytes,width:x.width,height:x.height,executed:false};
+ }catch{return failure('GO_IMAGE_STATUS_TRANSPORT_UNAVAILABLE',{requestId});}
+}
+export async function factoryVisualUpload(env,{requestId,pngBase64,sha256}={},approved=false){
+ if(approved!==true)return failure('OWNER_APPROVAL_REQUIRED');
+ const id=requestId===undefined?crypto.randomUUID():requestId;
+ if(!UUID.test(id||'')||!/^[a-f0-9]{64}$/.test(sha256||'')||
+    typeof pngBase64!=='string'||pngBase64.length<80||pngBase64.length>5_592_408||
+    pngBase64.length%4!==0||!/^[A-Za-z0-9+/]+={0,2}$/.test(pngBase64))
+   return failure('GO_IMAGE_INPUT_INVALID');
+ if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId:id});
+ try{
+  const binary=atob(pngBase64);
+  if(binary.length>4*1024*1024)return failure('GO_IMAGE_TOO_LARGE',{requestId:id});
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  if(await digest(bytes)!==sha256)return failure('GO_IMAGE_SHA_MISMATCH',{requestId:id});
+  const h=await factoryDirectStatus(env);
+  if(!h.ok||!h.commandReady)return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id});
+  const body={schema:'FACTORY_GO_PNG_INPUT_V1',requestId:id,sha256,pngBase64};
+  const r=await jsonRequest(env,'POST','/station/go-asset-upload',body),x=r.data||{};
+  if(!r.ok||x.status!=='STORED_NOT_PROCESSED'||x.requestId!==id.toLowerCase()||
+     x.sha256!==sha256||x.executed!==false)
+    return failure('GO_IMAGE_UPLOAD_UNVERIFIED',{requestId:id,httpStatus:r.httpStatus,reason:x.reason||x.status});
+  const back=await factoryVisualUploadStatus(env,{requestId:id});
+  if(!back.ok||back.sha256!==sha256||back.bytes!==bytes.length)
+    return failure('GO_IMAGE_READBACK_UNVERIFIED',{requestId:id,reason:back.status});
+  return back;
+ }catch{return failure('GO_IMAGE_UPLOAD_TRANSPORT_UNCERTAIN',{requestId:id});}
+}

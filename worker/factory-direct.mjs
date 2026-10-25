@@ -391,7 +391,8 @@ const FACTORY_STAMP_OPERATIONS=Object.freeze({
   register:'/station/go-key-register',
   stamp:'/station/go-key-stamp',
   status:'/station/go-key-status',
-  revoke:'/station/go-key-revoke'
+  revoke:'/station/go-key-revoke',
+  probe:'/station/key-probe'
 });
 // Project each response shape; never forward unknown upstream objects, even
 // inside slots/presets. Known fields also reject objects and token-like text.
@@ -437,12 +438,36 @@ function stampMetadata(action,value){
   if(action==='stamp'&&value.status==='KEY_STAMPED')out.key=value.key; // validated separately
   return out;
 }
+async function probeFactoryStampedIdentity(env,command){
+  const denied=()=>failure('STAMP_PROBE_INVALID');
+  if(Object.keys(command).some(k=>!['action','key','recipient','scope'].includes(k))||
+     typeof command.key!=='string'||!/^fsk1_[a-f0-9]{32}\.[a-f0-9]{64}$/.test(command.key)||
+     !stampSlotFields.recipient(command.recipient)||!stampScope(command.scope))return denied();
+  try{
+    // Fixed private destination; bearer only in this request's memory/header.
+    // No HMAC signing of token material, Hub relay, retry or caller URL.
+    const response=await env.FACTORY_DIRECT.fetch(new Request(HOST+'/station/key-probe',{
+      method:'POST',redirect:'manual',signal:AbortSignal.timeout(5000),
+      headers:{'content-type':'application/json',authorization:'Bearer '+command.key},
+      body:JSON.stringify({recipient:command.recipient,scope:command.scope})}));
+    const value=await boundedProbeJson(response);
+    if([401,403].includes(response.status)&&value?.status==='KEY_REJECTED')
+      return {ok:true,status:'KEY_REJECTED',accepted:false,readOnly:true,executed:false};
+    if(response.status!==200||value?.ok!==true||value.status!=='KEY_ACCEPTED'||
+       value.keyId!==command.key.slice(5,37)||value.recipient!==command.recipient||value.scope!==command.scope||
+       typeof value.expiresAt!=='string'||!stampTime(value.expiresAt))
+      return failure('STAMP_PROBE_UNVERIFIED');
+    return {ok:true,status:'KEY_ACCEPTED',accepted:true,keyId:value.keyId,
+      recipient:command.recipient,scope:command.scope,expiresAt:value.expiresAt,readOnly:true,executed:false};
+  }catch{return failure('STAMP_PROBE_UNAVAILABLE');}
+}
 export async function factoryKeyStamper(env,command={}){
   if(!object(command)||typeof command.action!=='string'||
      !Object.hasOwn(FACTORY_STAMP_OPERATIONS,command.action))
     return failure('STAMP_OPERATION_INVALID');
   if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED');
   const action=command.action;
+  if(action==='probe')return probeFactoryStampedIdentity(env,command);
   const body=action==='list'?{}:Object.fromEntries(
     Object.entries(command).filter(([key])=>key!=='action'));
   if(['register','stamp','revoke'].includes(action)&&body.approved!==true)

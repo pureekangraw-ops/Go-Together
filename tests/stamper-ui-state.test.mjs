@@ -62,3 +62,14 @@ test('operator can recover a lost-response request after reopening the page',asy
  assert.equal(p.get('keyId').value,'synthetic-recovered');
  assert.equal(p.get('secretOutput').value,'');
 });
+
+test('probe uses issuance recipient and memory-only key, locks repeated clicks and clears on hide',async()=>{
+ const p=await page();p.replies.push({status:'KEY_STAMPED',keyId:'synthetic-A',key:'synthetic-secret-A'});await p.click('stampButton');
+ p.get('recipient').value='DIFFERENT';let finish;
+ p.replies.push(()=>new Promise(resolve=>{finish=resolve;}));const pending=p.click('probeButton');
+ assert.deepEqual(p.calls.at(-1),{action:'probe',key:'synthetic-secret-A',recipient:'TEST',scope:'FACTORY:STATUS'});
+ const count=p.calls.length;await p.click('probeButton');assert.equal(p.calls.length,count);
+ finish({status:'KEY_ACCEPTED'});await pending;
+ assert.ok(!p.get('status').textContent.includes('synthetic-secret-A'));
+ await p.click('hideButton');await p.click('probeButton');assert.equal(p.calls.length,count);assert.equal(p.get('secretOutput').value,'');
+});

@@ -165,3 +165,23 @@ test('only validated first issuance exposes the top-level one-time key',async()=
  const out=await factoryKeyStamper(env,{action:'stamp',approved:true});
  assert.equal(out.key,token);assert.equal('receipt' in out,false);
 });
+
+test('private Stamper probe keeps bearer in fixed binding request and projects evidence',async()=>{
+ const f=fixture();let calls=0;
+ const env={...f.env,FACTORY_DIRECT:{fetch:async request=>{
+  calls++;assert.equal(request.url,'https://factory-district.internal/station/key-probe');
+  assert.equal(request.headers.get('authorization'),'Bearer '+token);
+  assert.equal(request.redirect,'manual');assert.deepEqual(await request.json(),{recipient:'ATLAS',scope:'VISUAL:ASSET'});
+  return Response.json({ok:true,status:'KEY_ACCEPTED',keyId:KEY_ID,recipient:'ATLAS',scope:'VISUAL:ASSET',expiresAt:'2026-10-26T00:00:00Z',debug:token});
+ }}};
+ const args={action:'probe',key:token,recipient:'ATLAS',scope:'VISUAL:ASSET'};
+ const result=await factoryKeyStamper(env,args);assert.equal(result.accepted,true);assert.equal(JSON.stringify(result).includes(token),false);
+ assert.equal((await factoryKeyStamper(env,{...args,url:'https://outside.invalid'})).ok,false);assert.equal(calls,1);
+ for(const scope of ['DEPLOY:CODE','ROOT'])assert.equal((await factoryKeyStamper(env,{...args,scope})).ok,false);
+ for(const [status,payload] of [[403,{status:'KEY_REJECTED',key:token}],[302,{ok:true,status:'KEY_ACCEPTED'}],[200,{ok:true,status:'KEY_ACCEPTED',keyId:'b'.repeat(32),recipient:'ATLAS',scope:'VISUAL:ASSET',expiresAt:'2026-10-26'}]]){
+  env.FACTORY_DIRECT.fetch=async()=>Response.json(payload,{status});const out=await factoryKeyStamper(env,args);
+  assert.notEqual(out.accepted,true);assert.equal(JSON.stringify(out).includes(token),false);
+ }
+ env.FACTORY_DIRECT.fetch=async()=>{throw Error(token);};
+ assert.deepEqual(await factoryKeyStamper(env,args),{ok:false,status:'STAMP_PROBE_UNAVAILABLE',executed:false});
+});

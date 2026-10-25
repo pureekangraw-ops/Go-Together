@@ -336,3 +336,41 @@ export async function factoryVisualUpload(env,{requestId,pngBase64,sha256}={},ap
   return back;
  }catch{return failure('GO_IMAGE_UPLOAD_TRANSPORT_UNCERTAIN',{requestId:id});}
 }
+
+
+/** Read a single owner receipt-bound Factory ZIP chunk.
+ * The caller provides ZIP SHA-256 from previously verified manifest.
+ */
+export async function factoryVisualZipChunk(env,{receiptId,artifactRef,offset,expectedSha256,length=262144}={}){
+ if(!RECEIPT.test(receiptId||'')||typeof artifactRef!=='string'||
+    !/^r2:\/\/factory\/edge-results\/[A-Za-z0-9%_-]+\/[A-Za-z0-9%_-]+\/[A-Za-z0-9%_-]+\/visual-cutouts\.zip$/.test(artifactRef)||
+    !/^[a-f0-9]{64}$/.test(expectedSha256||'')||
+    !Number.isSafeInteger(offset)||offset<0||
+    !Number.isSafeInteger(length)||length<1||length>262144)
+   return failure('GO_ZIP_CHUNK_INPUT_INVALID');
+ const receipt=await factoryDirectReadback(env,{receiptId});
+ if(!receipt.ok||!receipt.verified||receipt.domain!=='VISUAL'||!receipt.artifactRefs.includes(artifactRef))
+   return failure('ZIP_NOT_IN_GO_RECEIPT');
+ try{
+  const r=await jsonRequest(env,'POST','/station/go-artifact-chunk',
+    {receiptId,artifactRef,offset,length});
+  const x=r.data||{};
+  if(!r.ok||x.status!=='ZIP_CHUNK_READ'||x.receiptId!==receiptId||
+     x.artifactRef!==artifactRef||x.offset!==offset||
+     x.fileSha256!==expectedSha256||x.readOnly!==true||x.executed!==false||
+     !Number.isSafeInteger(x.total)||x.total<=0||x.total>8*1024*1024||
+     !Number.isSafeInteger(x.length)||x.length<=0||x.length>length||
+     x.nextOffset!==offset+x.length||x.complete!==(x.nextOffset===x.total)||
+     !/^[a-f0-9]{64}$/.test(x.chunkSha256||'')||
+     typeof x.base64!=='string'||x.base64.length>350000)
+    return failure('GO_ZIP_CHUNK_READBACK_INVALID',{receiptId,httpStatus:r.httpStatus});
+  const binary=atob(x.base64),bytes=new Uint8Array(binary.length);
+  for(let i=0;i<bytes.length;i++)bytes[i]=binary.charCodeAt(i);
+  if(bytes.length!==x.length||await digest(bytes)!==x.chunkSha256)
+    return failure('GO_ZIP_CHUNK_DIGEST_MISMATCH',{receiptId});
+  return {ok:true,status:'ZIP_CHUNK_VERIFIED',receiptId,artifactRef,
+    offset:x.offset,length:x.length,total:x.total,nextOffset:x.nextOffset,
+    complete:x.complete,fileSha256:x.fileSha256,chunkSha256:x.chunkSha256,
+    base64:x.base64,executed:false,readOnly:true};
+ }catch{return failure('GO_ZIP_CHUNK_UNAVAILABLE',{receiptId});}
+}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 const ROOT='https://go-together.pureekangraw.workers.dev';
 const CLIENT='https://chatgpt.com/oauth/client.json';
 const CALLBACK='https://chatgpt.com/connector_platform_oauth_redirect';
@@ -31,3 +31,4 @@ test('authorization code replay and bad PKCE are rejected',async()=>{const {call
 test('refresh rotation works and replay revokes its token family',async()=>{const {call}=setup();const {tokens}=await grant(call);const refresh=token=>call('/oauth/token',{method:'POST',body:new URLSearchParams({grant_type:'refresh_token',client_id:CLIENT,resource:ROOT+'/mcp',refresh_token:token})});const r=await refresh(tokens.refresh_token);assert.equal(r.status,200);const rotated=await r.json();assert.equal((await rpc(call,'tools/call',{name:'brain_list',arguments:{}},rotated.access_token)).status,200);assert.equal((await refresh(tokens.refresh_token)).status,400);assert.equal((await refresh(rotated.refresh_token)).status,400);});
 test('wrong owner passcode is rate limited and untrusted client cannot authorize',async()=>{const {call}=setup();const verifier='a'.repeat(64),challenge=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))).toString('base64url');const values={response_type:'code',client_id:CLIENT,redirect_uri:CALLBACK,resource:ROOT+'/mcp',scope:'brain-owner',code_challenge:challenge,code_challenge_method:'S256',actor:'GO',passcode:'wrong'};for(let n=0;n<5;n++)assert.equal((await call('/oauth/authorize',{method:'POST',body:new URLSearchParams(values)})).status,403);assert.equal((await call('/oauth/authorize',{method:'POST',body:new URLSearchParams(values)})).status,429);assert.equal((await call('/oauth/authorize?'+new URLSearchParams({...values,client_id:'https://evil.example/client.json'}))).status,400);});
 test('Metro resource tokens cannot access GO Brain',async()=>{const {call}=setup();const {tokens}=await grant(call);const r=await call('/oauth/token',{method:'POST',body:new URLSearchParams({grant_type:'refresh_token',client_id:CLIENT,resource:'https://metropolis.pureekangraw.workers.dev/mcp',refresh_token:tokens.refresh_token})});assert.equal(r.status,400);});
+

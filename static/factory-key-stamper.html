@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<title>FACTORY · Key Stamper</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#f1eeff;background:#080b14;--panel:#151a2a;--stroke:#323449;--purple:#b08cfa;--muted:#acadc4;--ok:#89dcc5}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 15%,#291741 0,transparent 45%),radial-gradient(ellipse at 90% 80%,#132845 0,transparent 40%),#080b14;min-height:100vh}
+main{max-width:1200px;margin:auto;padding:35px 24px 56px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:25px}
+.kicker{font-weight:800;letter-spacing:.19em;color:var(--purple);font-size:.74rem}
+h1{margin:4px 0;font-size:clamp(2rem,4vw,3.25rem);letter-spacing:-.055em}
+p{line-height:1.58;margin:8px 0;color:var(--muted)}.micro{font-size:.78rem;color:#9899b1}.ribbon{display:inline-flex;align-items:center;gap:7px;border:1px solid #41465b;padding:9px 12px;border-radius:50px;color:#c6c8dd;font-size:.84rem;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:#c0b3e3;display:inline-block}
+.layout{display:grid;grid-template-columns:minmax(350px,1fr) minmax(350px,1fr);gap:20px;align-items:start}
+.panel{background:linear-gradient(145deg,#171c2e,#111622);border:1px solid var(--stroke);border-radius:25px;padding:25px;box-shadow:0 16px 50px #0003}
+h2{font-size:1.05rem;margin:0 0 4px;letter-spacing:.01em}.dial{position:relative;width:min(100%,440px);aspect-ratio:1;margin:24px auto 12px;border-radius:50%;border:1px solid #534577;background:repeating-conic-gradient(from 0deg,#aa88f011 0deg 2deg,transparent 2deg 24deg),radial-gradient(circle,#272039 5%,#17172c 45%,#141827 70%);box-shadow:inset 0 0 0 14px #191d2a,inset 0 0 0 17px #474153,0 20px 60px #0004}
+.dial:before{content:"";position:absolute;inset:17%;border-radius:50%;border:2px solid #70609c;background:radial-gradient(circle,#3e2b61,#22203a 70%);box-shadow:0 0 30px #9b66ff16}
+.center{position:absolute;inset:37%;border:1px solid #c9b6ff91;border-radius:50%;background:linear-gradient(145deg,#a28bdc,#524270);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#fff;font-weight:900;letter-spacing:.08em;font-size:clamp(.65rem,1.8vw,.9rem);box-shadow:inset 0 1px 0 #fff7,0 4px 18px #0008;pointer-events:none}
+.center span{font-size:2.2rem;line-height:1.12}.wheel-slot{position:absolute;transform:translate(-50%,-50%);min-width:115px;max-width:130px;border-radius:15px;border:1px solid #514965;padding:11px 8px;background:#1b2033;color:#e5dbfb;text-align:center;cursor:pointer;font-size:.78rem;font-weight:800;line-height:1.3;transition:background .15s,transform .15s,border-color .15s}
+.wheel-slot:hover{background:#352a52;transform:translate(-50%,-50%) scale(1.04)}
+.wheel-slot.selected{border:2px solid #d2b8ff;color:#fff;background:#523d7b;box-shadow:0 0 0 4px #ac82ff18}
+.wheel-slot small{display:block;color:#c6badb;font-weight:500;font-size:.65rem;margin-top:4px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+.full{grid-column:1/-1}
+label{display:block;font-size:.77rem;font-weight:700;color:#bebfd1;margin:0 0 6px}
+input,select,textarea{width:100%;min-width:0;outline:none;background:#0d1120;border:1px solid #3c3e55;color:#f6f1ff;border-radius:11px;padding:12px;font:inherit}
+input:focus,select:focus,textarea:focus{border-color:#ad84f9;box-shadow:0 0 0 2px #ad84f926}
+input::placeholder{color:#72778d}
+button{border:1px solid #6d578f;border-radius:12px;background:#372a52;color:#f2e9ff;cursor:pointer;padding:12px 15px;font:inherit;font-weight:800}
+button.primary{background:linear-gradient(135deg,#c2a4ff,#8864df);color:#130c22;border:0}
+button.ghost{background:transparent;border:1px solid #42445d}
+button:disabled{opacity:.45;cursor:not-allowed}button:hover:not(:disabled){filter:brightness(1.1)}
+.actions{display:flex;gap:10px;flex-wrap:wrap}.divider{height:1px;background:#35364c;margin:23px 0}
+.scopes{display:flex;gap:7px;flex-wrap:wrap;padding-top:12px}
+.scope{font-size:.72rem;padding:5px 8px;border-radius:99px;background:#3b2e5b;color:#e0cbff}
+.slot-list{display:grid;gap:8px;margin-top:12px;max-height:180px;overflow:auto}.slot-row{display:flex;justify-content:space-between;align-items:center;gap:9px;padding:10px 12px;border:1px solid #393e56;border-radius:11px;background:#12182a}
+.slot-row strong{font-size:.81rem}.slot-row small{display:block;font-size:.73rem;color:var(--muted)}.slot-row button{font-size:.7rem;padding:7px 11px}
+.status{padding:11px 14px;border:1px solid #45405d;border-radius:12px;margin-top:20px;background:#201d33;min-height:42px;font-size:.83rem;line-height:1.6;color:#d8ccef;overflow-wrap:anywhere}
+.secret{margin-top:14px;border:1px solid #4a876f;border-radius:15px;padding:14px;background:#11251f;display:none}
+.secret strong{color:#a3eed4}.secret textarea{margin-top:9px;height:75px;background:#0c1916;border-color:#3b7b66;font-family:ui-monospace,monospace;font-size:.75rem;resize:vertical;word-break:break-all}
+.warn{border-left:3px solid #b79cf0;padding:2px 0 2px 12px;font-size:.78rem}
+@media(max-width:850px){.layout{grid-template-columns:1fr}main{padding:20px 15px 40px}.panel{padding:20px}.wheel-slot{min-width:100px;max-width:116px}}
+@media(max-width:420px){.form{grid-template-columns:1fr}.wheel-slot{min-width:85px;max-width:96px;font-size:.68rem;padding:9px 5px}.dial{margin-top:28px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div><div class="kicker">YGG METRO / FACTORY DISTRICT</div>
+  <h1>KEY STAMPER <span aria-hidden="true">⌁</span></h1>
+  <p>หมุนเลือกสล็อต กำหนดผู้รับ แล้วปั๊มคีย์ประจำเครื่องจักร</p>
+ </div>
+ <div class="ribbon"><span class="dot" id="onlineDot"></span><span id="connection">Checking Factory</span></div>
+</header>
+<section class="layout" aria-label="เครื่องปั๊มคีย์">
+ <section class="panel">
+  <h2>01 / หมุนวงล้อ</h2>
+  <p class="micro">เลือกหน้าที่ของสล็อต ไม่ใช่สิทธิ์ระดับเจ้าของระบบ</p>
+  <div class="dial" id="dial" role="group" aria-label="วงล้อเลือกประเภทสล็อต">
+   <div class="center"><span>⌁</span>KEY<br>STAMP</div>
+  </div>
+  <div id="selectedTemplate" class="status" aria-live="polite">กำลังโหลดหน้าปั๊มคีย์…</div>
+  <div class="scopes" id="scopeTokens"></div>
+  <div class="divider"></div>
+  <h2>สล็อตที่ลงทะเบียนแล้ว</h2>
+  <div class="slot-list" id="slotList"><span class="micro">ยังไม่มีสล็อต</span></div>
+ </section>
+ <section class="panel">
+  <h2>02 / ติดตั้งสล็อต</h2>
+  <p class="micro">สร้างสล็อตใหม่เมื่อมี Agent, Runner หรือผู้มาติดต่อใหม่</p>
+  <form id="registerForm" class="form">
+   <div><label for="slotId">ชื่อสล็อต</label><input id="slotId" required maxlength="40" pattern="[A-Z][A-Z0-9_]{2,39}" placeholder="ATLAS_VISUAL" autocapitalize="characters" spellcheck="false"></div>
+   <div><label for="recipient">ผู้รับคีย์</label><input id="recipient" required maxlength="80" placeholder="ATLAS" pattern="[A-Za-z0-9][A-Za-z0-9_.:-]{1,79}" spellcheck="false"></div>
+   <div class="full"><label for="description">หมายเหตุ (ไม่ใส่ความลับ)</label><input id="description" maxlength="150" placeholder="Agent / Runner name"></div>
+   <div class="full actions"><button type="submit" id="registerButton">ติดตั้งสล็อต</button></div>
+  </form>
+  <div class="divider"></div>
+  <h2>03 / ปั๊มคีย์</h2>
+  <p class="micro">เลือกสล็อตที่ติดตั้งแล้ว กำหนดเวลา และกดปั๊ม คีย์จะปรากฏเพียงครั้งเดียว</p>
+  <div class="form">
+   <div class="full"><label for="selectedSlot">สล็อตที่เลือก</label><select id="selectedSlot"><option value="">เลือกสล็อตก่อน</option></select></div>
+   <div><label for="ttl">อายุคีย์ (นาที)</label><input id="ttl" type="number" min="5" step="5" value="60"></div>
+   <div><label for="keyId">Key ID สำหรับตรวจ/เพิกถอน</label><input id="keyId" spellcheck="false" placeholder="หลังปั๊มจะขึ้นที่นี่"></div>
+   <div class="full"><label for="requestId">Request ID สำหรับกู้สถานะ (ไม่ใช่คีย์ลับ)</label><input id="requestId" spellcheck="false" autocomplete="off" placeholder="เก็บ ID นี้ไว้เพื่อตรวจสถานะเมื่อการเชื่อมต่อขาด"></div>
+   <div class="full actions">
+    <button class="primary" id="stampButton" type="button">⌁ ปั๊มคีย์</button>
+    <button class="ghost" id="statusButton" type="button">ตรวจสถานะ</button>
+    <button class="ghost" id="revokeButton" type="button">เพิกถอนคีย์</button>
+   </div>
+  </div>
+  <section class="secret" id="secretPanel" aria-live="polite">
+   <strong>คีย์ออกแล้ว · แสดงครั้งเดียว</strong>
+   <p class="micro">คัดลอกให้ผู้รับผ่านช่องทางที่ปลอดภัย เมื่อปิดส่วนนี้จะไม่สามารถอ่านคีย์เดิมจากระบบได้</p>
+   <textarea id="secretOutput" readonly aria-label="คีย์ที่ปั๊มแล้ว"></textarea>
+   <div class="actions">
+    <button type="button" id="probeButton">ตรวจสิทธิ์ Factory:STATUS</button>
+    <button type="button" id="copyButton">คัดลอกคีย์</button>
+    <button type="button" class="ghost" id="hideButton">ปิดและล้างจากหน้าจอ</button>
+   </div>
+  </section>
+  <div class="status" id="status" role="status" aria-live="polite">โปรดเข้าสู่ระบบเจ้าของ GO Brain ก่อนใช้งานเครื่องจักร</div>
+  <div class="divider"></div>
+  <p class="warn">เครื่องนี้ออกเฉพาะ <b>Factory-native key</b> ตามสล็อตที่กำหนด ไม่ได้ออก Google/GitHub/Cloudflare API token และคีย์นี้ไม่ได้แทนที่ Work Pass หรือสิทธิ์ Deploy</p>
+ </section>
+</section>
+</main>
+<script type="module">
+const $=id=>document.getElementById(id);
+const items={presets:[],slots:[]};
+let selectedPreset=null,selectedSlotId='',lastRequestId=null,busy=false,probeRecipient=null;
+function message(text){$('status').textContent=text;}
+function clearSecret(){probeRecipient=null;const node=$('secretOutput');node.value='';$('secretPanel').style.display='none';}
+const MAX_BODY=4000;
+async function api(action={}){
+ const method=action.action?'POST':'GET';
+ const body=method==='POST'?JSON.stringify(action):undefined;
+ if(body&&body.length>MAX_BODY)throw Error('Request too large');
+ const response=await fetch('/api/factory-stamper',{
+  method,credentials:'same-origin',cache:'no-store',headers:method==='POST'?
+   {'content-type':'application/json','x-factory-stamper-intent':'1'}:{},
+  ...(body?{body}:{})});
+ let result;try{result=await response.json();}catch{throw Error('Factory response unavailable');}
+ if(!response.ok||result?.ok!==true)throw Error(result?.reason||result?.status||result?.error||'Factory unavailable');
+ return result;
+}
+function template(){return items.presets.find(p=>p.preset===selectedPreset)||null;}
+function choosePreset(id){
+ selectedPreset=id;
+ const t=template();
+ for(const b of $('dial').querySelectorAll('button'))b.classList.toggle('selected',b.dataset.preset===id);
+ $('selectedTemplate').textContent=t?t.name+' · สูงสุด '+Math.round(t.maxTtlSeconds/60)+' นาที':'ยังไม่เลือก';
+ $('scopeTokens').replaceChildren();
+ for(const s of t?.scopes||[]){
+  const chip=document.createElement('span');chip.className='scope';chip.textContent=s;
+  $('scopeTokens').append(chip);
+ }
+ if(t)$('ttl').max=String(t.maxTtlSeconds/60);
+ refreshSlots();
+}
+function selectSlot(id){
+ const selected=items.slots.find(s=>s.slotId===id);
+ if(!selected)return;
+ if(selected.preset!==selectedPreset)choosePreset(selected.preset);
+ selectedSlotId=id;
+ $('selectedSlot').value=id;
+ $('slotId').value=selected.slotId;$('recipient').value=selected.recipient;
+ clearSecret();
+ message('เลือกสล็อต '+id+' สำหรับ '+selected.recipient);
+}
+function refreshSlots(){
+ const slots=items.slots.filter(x=>x.preset===selectedPreset);
+ const holder=$('slotList'),selector=$('selectedSlot');
+ holder.replaceChildren();selector.replaceChildren();
+ const empty=document.createElement('option');empty.value='';empty.textContent='เลือกสล็อต';selector.append(empty);
+ if(!slots.length){const note=document.createElement('p');note.className='micro';note.textContent='ยังไม่มีสล็อตในหมวดนี้';holder.append(note);}
+ for(const item of slots){
+  const row=document.createElement('div');row.className='slot-row';
+  const head=document.createElement('div'),name=document.createElement('strong'),details=document.createElement('small');
+  name.textContent=item.slotId;details.textContent=item.recipient;
+  head.append(name,details);
+  const button=document.createElement('button');button.type='button';button.textContent='เลือก';
+  button.addEventListener('click',()=>selectSlot(item.slotId));
+  row.append(head,button);holder.append(row);
+  const option=document.createElement('option');option.value=item.slotId;
+  option.textContent=item.slotId+' · '+item.recipient;selector.append(option);
+ }
+ if(slots.some(s=>s.slotId===selectedSlotId))selector.value=selectedSlotId;
+ else selectedSlotId='',selector.value='';
+}
+function drawWheel(){
+ $('dial').querySelectorAll('button').forEach(e=>e.remove());
+ items.presets.forEach((preset,i)=>{
+  const angle=(-90+i*360/items.presets.length)*Math.PI/180;
+  const button=document.createElement('button');
+  button.className='wheel-slot';button.type='button';
+  button.dataset.preset=preset.preset;
+  button.style.left=(50+36*Math.cos(angle))+'%';
+  button.style.top=(50+36*Math.sin(angle))+'%';
+  const title=document.createElement('span');title.textContent=preset.name;
+  const small=document.createElement('small');small.textContent=preset.preset.replace('_',' ');
+  button.append(title,small);
+  button.addEventListener('click',()=>choosePreset(preset.preset));
+  $('dial').append(button);
+ });
+ if(items.presets.length)choosePreset(selectedPreset||items.presets[0].preset);
+}
+async function reload(){
+ try{
+  const result=await api();
+  items.presets=result.presets||[];items.slots=result.slots||[];
+  $('onlineDot').style.background='#89dcc5';
+  $('connection').textContent='Factory HMAC connected';
+  drawWheel();message('เครื่องจักรพร้อมเลือกสล็อต · ยังไม่มีการออกคีย์');
+ }catch(e){
+  $('onlineDot').style.background='#f4b1a5';$('connection').textContent='Owner login required / Factory offline';
+  message('โหลดสล็อตไม่ได้: '+e.message);
+ }
+}
+function lock(v){busy=v;$('keyId').readOnly=v;$('requestId').readOnly=v;for(const id of ['stampButton','registerButton','statusButton','revokeButton','probeButton'])$(id).disabled=v;}
+$('registerForm').addEventListener('submit',async event=>{
+ event.preventDefault();if(busy||!selectedPreset)return;
+ lock(true);clearSecret();
+ try{
+  const slotId=$('slotId').value.trim().toUpperCase(),recipient=$('recipient').value.trim();
+  const result=await api({action:'register',slotId,preset:selectedPreset,recipient,
+   description:$('description').value.trim(),approved:true});
+  message(result.status+' · '+slotId);
+  await reload();selectSlot(slotId);
+ }catch(e){message(e.message);}
+ finally{lock(false);}
+});
+$('selectedSlot').addEventListener('change',e=>selectSlot(e.target.value));
+$('stampButton').addEventListener('click',async()=>{
+ if(busy)return;
+ const slot=items.slots.find(x=>x.slotId===selectedSlotId);
+ if(!slot){message('เลือกสล็อตที่ลงทะเบียนแล้วก่อน');return;}
+ const ttlSeconds=Number($('ttl').value)*60;
+ if(!Number.isInteger(ttlSeconds)||ttlSeconds<300||ttlSeconds>slot.maxTtlSeconds){
+  message('ช่วงเวลาไม่ตรงข้อกำหนดของสล็อต');return;
+ }
+ if(!confirm('ยืนยันปั๊มคีย์ใหม่ให้ '+slot.recipient+' สำหรับ '+slot.slotId+'?'))return;
+ lock(true);clearSecret();
+ // A new request must never inherit the previous key's revoke target.
+ $('keyId').value='';
+ lastRequestId=crypto.randomUUID();$('requestId').value=lastRequestId;
+ try{
+  const result=await api({action:'stamp',slotId:slot.slotId,recipient:slot.recipient,
+   requestId:lastRequestId,ttlSeconds,approved:true});
+  $('keyId').value=result.keyId||'';
+  if(result.status==='KEY_STAMPED'&&typeof result.key==='string'){
+   probeRecipient=slot.recipient;$('secretOutput').value=result.key;$('secretPanel').style.display='block';
+   message('ปั๊มสำเร็จ · หมดอายุ '+result.expiresAt+' · คีย์แสดงเพียงครั้งเดียว');
+  }else message('พบรายการเดิมแล้ว · '+(result.keyStatus||'ตรวจสถานะ')+' · ไม่สามารถเรียกคีย์เดิมอีกครั้ง');
+ }catch(e){message('ผลไม่แน่นอน: '+e.message+' · ตรวจสถานะก่อนสั่งซ้ำ · Request ID '+lastRequestId);}
+ finally{lock(false);}
+});
+$('keyId').addEventListener('input',()=>{lastRequestId=null;$('requestId').value='';clearSecret();});
+$('requestId').addEventListener('input',()=>{lastRequestId=$('requestId').value.trim()||null;$('keyId').value='';clearSecret();});
+$('statusButton').addEventListener('click',async()=>{
+ if(busy)return;
+ const keyId=$('keyId').value.trim();
+ if(!keyId&&!lastRequestId){message('กรอก Key ID หรือปั๊มคีย์ก่อน');return;}
+ lock(true);
+ try{
+  const r=await api({action:'status',...(keyId?{keyId}:{requestId:lastRequestId})});
+  if(!keyId&&typeof r.keyId==='string')$('keyId').value=r.keyId;
+  message(r.status+' · Slot '+r.slotId+' · ผู้รับ '+r.recipient+' · หมดอายุ '+r.expiresAt);
+ }catch(e){message(e.message);}
+ finally{lock(false);}
+});
+$('revokeButton').addEventListener('click',async()=>{
+ if(busy)return;
+ const keyId=$('keyId').value.trim();
+ if(!keyId){message('กรอก Key ID ก่อนเพิกถอน');return;}
+ if(!confirm('เพิกถอนคีย์ '+keyId+' ตอนนี้? ไม่สามารถย้อนกลับได้'))return;
+ lock(true);
+ try{const r=await api({action:'revoke',keyId,approved:true});clearSecret();message(r.status+' · '+keyId);}
+ catch(e){message(e.message);}
+ finally{lock(false);}
+});
+$('probeButton').addEventListener('click',async()=>{
+ if(busy||!probeRecipient||!$('secretOutput').value)return;
+ lock(true);
+ try{
+  const r=await api({action:'probe',key:$('secretOutput').value,recipient:probeRecipient,scope:'FACTORY:STATUS'});
+  message(r.status+' · ตรวจสิทธิ์อ่านสถานะเท่านั้น · ไม่มีการสั่งงาน');
+ }catch{message('ตรวจสิทธิ์ไม่สำเร็จ · ไม่มีการสั่งงาน');}
+ finally{lock(false);}
+});
+$('copyButton').addEventListener('click',async()=>{
+ try{await navigator.clipboard.writeText($('secretOutput').value);message('คัดลอกคีย์แล้ว โปรดส่งผ่านช่องทางที่ปลอดภัย');}
+ catch{message('คัดลอกอัตโนมัติไม่ได้ โปรดคัดลอกเอง');}
+});
+$('hideButton').addEventListener('click',()=>{clearSecret();message('ล้างคีย์จากหน้าจอแล้ว');});
+window.addEventListener('pagehide',clearSecret);
+reload();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev';
 const owner={access:{aud:'test-aud',getIdentity:async()=>({email:'owner@example.test'})}};
@@ -84,3 +84,4 @@ test('response identifies this write even if a later writer commits before respo
  assert.equal(result.content,'ours');assert.equal(result.revision,2);
  const current=await s.invoke('brain_retrieve',{id:item.id});assert.equal(current.revision,3);assert.equal(current.content,'later');
 });
+

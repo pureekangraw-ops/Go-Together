@@ -3,7 +3,7 @@ import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {createFactoryReport} from '../portable-factory-report.mjs';
-import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk, factoryKeyStamper} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -68,6 +68,30 @@ return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical m
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
 async function body(req,allowEmpty=false,maxLength=1000000){const txt=await req.text();if(txt.length>maxLength)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
+if(p==='/api/factory-stamper'){
+  if(m==='GET'){
+    const result=await factoryKeyStamper(env,{action:'list'});
+    return reply(result,result.ok?200:503);
+  }
+  if(m!=='POST')return error(405,'method_not_allowed');
+  // No cross-origin forms or unauthenticated browser-to-Factory key writes.
+  // Existing owner Access/MCP identity remains the sole operator principal.
+  const origin=req.headers.get('origin');
+  if(origin!==url.origin||req.headers.get('x-factory-stamper-intent')!=='1'||
+     !/^application\/json(?:\s*;|$)/i.test(req.headers.get('content-type')||''))
+    return error(403,'same_origin_owner_action_required');
+  const action=await body(req,false,4096);
+  restrict(action,['action','slotId','preset','recipient','description','requestId','ttlSeconds','keyId','approved']);
+  if(!['register','stamp','status','revoke'].includes(action.action))
+    return error(400,'invalid_stamp_action');
+  if(['register','stamp','revoke'].includes(action.action)&&action.approved!==true)
+    return error(403,'explicit_owner_approval_required');
+  const result=await factoryKeyStamper(env,action);
+  const status=result.ok?(result.status==='KEY_STAMPED'?201:200):
+    result.httpStatus===409?409:result.httpStatus===404?404:
+    result.status==='STAMP_TRANSPORT_UNCERTAIN'?503:400;
+  return reply(result,status);
+}
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));

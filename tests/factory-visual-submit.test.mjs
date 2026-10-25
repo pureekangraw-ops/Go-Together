@@ -27,7 +27,7 @@ function makeEnv({corrupt=false}={}){
   const body=req.method==='GET'?'':await req.text();
   if(path==='/health')return Response.json({service:'factory-district',stationId:'FACTORY-STATION',
    status:'READY',sourceSha,storage:{status:'READY'},transport:{status:'READY'},
-   machinery:{CODE:{status:'READY'},VISUAL:{status:'READY'},LOGIC:{status:'READY'}}});
+   machinery:{CODE:{status:'READY'},VISUAL:{status:'READY',intents:['STATIC_CARD_V1','ALPHA_CUTOUT_V1']},LOGIC:{status:'READY'}}});
   const timestamp=req.headers.get('x-metropolis-factory-timestamp');
   const signature=createHmac('sha256',secret).update(timestamp+'.'+body).digest('hex');
   assert.equal(req.headers.get('x-metropolis-factory-signature'),signature);

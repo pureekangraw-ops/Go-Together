@@ -1,7 +1,7 @@
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {createFactoryReport} from '../portable-factory-report.mjs';
-import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus} from './factory-direct.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -142,6 +142,11 @@ const tools=[
  sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},requestId:Q,
  approved:{type:'boolean',const:true}
 },['pngBase64','sha256','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
+{name:'factory_visual_zip_chunk',description:'Read one SHA-256 verified segment of a receipt-bound VISUAL ZIP (up to 256 KiB). Pass full expected ZIP digest from the verified image-pack manifest; does not execute anything.',inputSchema:SCHEMA({
+ receiptId:Q,artifactRef:Q,offset:{type:'integer',minimum:0},
+ length:{type:'integer',minimum:1,maximum:262144},
+ expectedSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}
+},['receiptId','artifactRef','offset','expectedSha256']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_visual_upload_status',description:'Read existing signed Factory image upload receipt without redoing an effect.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_workshop_content',description:'Owner-approved nonsecret Workshop JSON content ingestion on the existing signed Factory rail. Returns an immutable content reference and digest; no machine execution. No credentials or customer data.',inputSchema:SCHEMA({content:{},approved:{type:'boolean',const:true}},['content','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_job_status',description:'Read Factory job/receipt by a prior GO-generated requestId; never reexecutes work.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
@@ -272,6 +277,7 @@ if(name==='factory_direct_submit'){
  return factoryDirectSubmit(env,{domain:a.domain,spec:a.spec,requestId:a.requestId},true);
 }
 if(name==='factory_visual_upload'){restrict(a,['pngBase64','sha256','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryVisualUpload(env,{pngBase64:a.pngBase64,sha256:a.sha256,requestId:a.requestId},true);}
+if(name==='factory_visual_zip_chunk'){restrict(a,['receiptId','artifactRef','offset','length','expectedSha256']);return factoryVisualZipChunk(env,a);}
 if(name==='factory_visual_upload_status'){restrict(a,['requestId']);return factoryVisualUploadStatus(env,a);}
 if(name==='factory_workshop_content'){restrict(a,['content','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryWorkshopContent(env,{content:a.content},true);}
 if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryDirectJobStatus(env,a);}

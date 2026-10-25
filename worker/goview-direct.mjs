@@ -1,5 +1,5 @@
 // Independent boundary validation pinned to Observatory transfer contract v1 at
-// c84f41c962878bf0d74b484ba5f48bdee320c521. Keep Studio graph normalization
+// c484fcd974bb5da921480c87b1793532dd45a70a. Keep Studio graph normalization
 // separate from selected-pin GeoJSON; never translate between their stores.
 const transferTools=['goview_transfer_read','goview_transfer_publish','goview_transfer_receipt'];
 async function digest(raw){

@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {goviewDirect} from '../worker/goview-direct.mjs';
 import {snapshot,proposal,studio,receipt} from './goview-transfer-fixtures.mjs';
 // Opt-in cross-repository fixture. Extract the pinned contract commit locally:
-// git -C <observatory> archive c84f41c962878bf0d74b484ba5f48bdee320c521 \
+// git -C <observatory> archive c484fcd974bb5da921480c87b1793532dd45a70a \
 //   goview-package-bridge android-browser/app/src/main/assets/goview-studio/engine.js | tar -x -C <fixture>
 // GOVIEW_CONTRACT_ROOT=<fixture> node --test tests/goview-transfer-contract.test.mjs
 const root=process.env.GOVIEW_CONTRACT_ROOT;
@@ -29,6 +29,15 @@ test('actual GO adapter → pinned GOVIEW Worker: selected read, proposal, Studi
  const r=receipt(p);assert.equal((await request(p.transferId+'/receipt',env.ANDROID_READ_TOKEN,'POST',r)).status,201);
  const observed=await goviewDirect(go,'goview_transfer_receipt',{transferId:p.transferId});assert.deepEqual(observed.receipt,r);assert.equal(observed.independentlyVerified,false);
  const graph=studio();assert.deepEqual((await goviewDirect(go,'goview_transfer_publish',{envelope:graph})).envelope,graph);
+ const max=studio(999999);max.transferId='synthetic-studio-max-version';
+ assert.deepEqual((await goviewDirect(go,'goview_transfer_publish',{envelope:max})).envelope,max);
+ const overflow=studio(1000000);overflow.transferId='synthetic-studio-overflow';const beforeOverflow=writes;
+ assert.equal((await goviewDirect(go,'goview_transfer_publish',{envelope:overflow})).status,'INVALID_TRANSFER_ARGUMENTS');
+ assert.equal((await request(overflow.transferId,env.GO_WRITE_TOKEN,'PUT',overflow)).status,422);
+ assert.equal(writes,beforeOverflow);
+ assert.equal(data.has('goview/typed-transfers/'+overflow.transferId+'.json'),false);
+ assert.equal(data.has('goview/'+overflow.identity.mapId+'/versions/1000000.json'),false);
+
  // A committed typed write with lost response is never automatically repeated.
  const next={...p,identity:{...p.identity},transferId:p.transferId};
  const before=writes;assert.equal((await goviewDirect(go,'goview_transfer_publish',{envelope:next})).ok,true);assert.equal(writes,before);

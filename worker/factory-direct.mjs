@@ -239,12 +239,33 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       requestId:id,jobId:x.jobId,receiptId:x.receiptId,
       sourceSha:h.sourceSha,evidenceRefs:back.evidenceRefs,executed:true,
       deliveredBytes:false,capability:'DWARF_TRAINING_ONLY'};
-    const suffix=domain==='CODE'?'/main.js':'/render.png';
+    const imageSplit=domain==='VISUAL'&&object(spec.imageSplit);
+    const suffix=domain==='CODE'?'/main.js':imageSplit?'/split-manifest.json':'/render.png';
     const ref=back.artifactRefs.find(v=>typeof v==='string'&&
       v.startsWith('r2://factory/edge-results/')&&v.endsWith(suffix));
     if(!ref)return failure('GO_ARTIFACT_REF_MISSING',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
     const artifact=await factoryDirectArtifact(env,{receiptId:x.receiptId,artifactRef:ref});
     if(!artifact.ok)return {...artifact,requestId:id,jobId:x.jobId,receiptId:x.receiptId};
+    if(imageSplit){
+      let manifest;
+      try{manifest=JSON.parse(atob(artifact.base64));}
+      catch{return failure('GO_IMAGE_MANIFEST_INVALID',{requestId:id,receiptId:x.receiptId});}
+      if(manifest?.schema!=='FACTORY_VISUAL_SPLIT_MANIFEST_V1'||
+         manifest.count!==spec.imageSplit.count||manifest.canvas!==spec.imageSplit.canvas||
+         !Array.isArray(manifest.files)||manifest.files.length!==manifest.count||
+         !/^[a-f0-9]{64}$/.test(manifest.zipSha256||'')||
+         typeof manifest.zipRef!=='string'||!back.artifactRefs.includes(manifest.zipRef)||
+         manifest.sourceSha256!==spec.imageSplit.sourceRef.match(/edge-source\\/go\\/([a-f0-9]{64})\\.png/)?.[1]||
+         manifest.files.some((f,i)=>f.name!==spec.imageSplit.names[i]||
+            !back.artifactRefs.includes(f.ref)||!/^[a-f0-9]{64}$/.test(f.sha256||'')))
+        return failure('GO_IMAGE_MANIFEST_UNVERIFIED',{requestId:id,receiptId:x.receiptId});
+      return {ok:true,status:'GO_FACTORY_IMAGE_PACK_READY',domain:'VISUAL',
+        requestId:id,jobId:x.jobId,receiptId:x.receiptId,sourceSha:h.sourceSha,
+        inputSha256:manifest.sourceSha256,manifestRef:ref,
+        files:manifest.files,zipRef:manifest.zipRef,zipSha256:manifest.zipSha256,
+        zipBytes:manifest.archiveBytes,evidenceRefs:back.evidenceRefs,
+        executed:true,deliveredBytes:false};
+    }
     return {ok:true,status:'GO_FACTORY_DELIVERABLE_READY',requestId:id,
       jobId:x.jobId,receiptId:x.receiptId,domain,sourceSha:h.sourceSha,
       artifactRef:ref,evidenceRefs:back.evidenceRefs,

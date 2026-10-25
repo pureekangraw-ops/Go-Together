@@ -84,6 +84,7 @@ button:disabled{opacity:.45;cursor:not-allowed}button:hover:not(:disabled){filte
    <div class="full"><label for="selectedSlot">สล็อตที่เลือก</label><select id="selectedSlot"><option value="">เลือกสล็อตก่อน</option></select></div>
    <div><label for="ttl">อายุคีย์ (นาที)</label><input id="ttl" type="number" min="5" step="5" value="60"></div>
    <div><label for="keyId">Key ID สำหรับตรวจ/เพิกถอน</label><input id="keyId" spellcheck="false" placeholder="หลังปั๊มจะขึ้นที่นี่"></div>
+   <div class="full"><label for="requestId">Request ID สำหรับกู้สถานะ (ไม่ใช่คีย์ลับ)</label><input id="requestId" spellcheck="false" autocomplete="off" placeholder="เก็บ ID นี้ไว้เพื่อตรวจสถานะเมื่อการเชื่อมต่อขาด"></div>
    <div class="full actions">
     <button class="primary" id="stampButton" type="button">⌁ ปั๊มคีย์</button>
     <button class="ghost" id="statusButton" type="button">ตรวจสถานะ</button>
@@ -197,7 +198,7 @@ async function reload(){
   message('โหลดสล็อตไม่ได้: '+e.message);
  }
 }
-function lock(v){busy=v;$('keyId').readOnly=v;for(const id of ['stampButton','registerButton','statusButton','revokeButton'])$(id).disabled=v;}
+function lock(v){busy=v;$('keyId').readOnly=v;$('requestId').readOnly=v;for(const id of ['stampButton','registerButton','statusButton','revokeButton'])$(id).disabled=v;}
 $('registerForm').addEventListener('submit',async event=>{
  event.preventDefault();if(busy||!selectedPreset)return;
  lock(true);clearSecret();
@@ -223,7 +224,7 @@ $('stampButton').addEventListener('click',async()=>{
  lock(true);clearSecret();
  // A new request must never inherit the previous key's revoke target.
  $('keyId').value='';
- lastRequestId=crypto.randomUUID();
+ lastRequestId=crypto.randomUUID();$('requestId').value=lastRequestId;
  try{
   const result=await api({action:'stamp',slotId:slot.slotId,recipient:slot.recipient,
    requestId:lastRequestId,ttlSeconds,approved:true});
@@ -231,11 +232,12 @@ $('stampButton').addEventListener('click',async()=>{
   if(result.status==='KEY_STAMPED'&&typeof result.key==='string'){
    $('secretOutput').value=result.key;$('secretPanel').style.display='block';
    message('ปั๊มสำเร็จ · หมดอายุ '+result.expiresAt+' · คีย์แสดงเพียงครั้งเดียว');
-  }else message('พบรายการเดิมแล้ว ไม่สามารถเรียกคีย์เดิมอีกครั้ง');
+  }else message('พบรายการเดิมแล้ว · '+(result.keyStatus||'ตรวจสถานะ')+' · ไม่สามารถเรียกคีย์เดิมอีกครั้ง');
  }catch(e){message('ผลไม่แน่นอน: '+e.message+' · ตรวจสถานะก่อนสั่งซ้ำ · Request ID '+lastRequestId);}
  finally{lock(false);}
 });
-$('keyId').addEventListener('input',()=>{lastRequestId=null;});
+$('keyId').addEventListener('input',()=>{lastRequestId=null;$('requestId').value='';clearSecret();});
+$('requestId').addEventListener('input',()=>{lastRequestId=$('requestId').value.trim()||null;$('keyId').value='';clearSecret();});
 $('statusButton').addEventListener('click',async()=>{
  if(busy)return;
  const keyId=$('keyId').value.trim();

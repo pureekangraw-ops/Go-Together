@@ -52,3 +52,13 @@ test('failed lookup retains request identity; explicit manual identity cancels f
  p.replies.push({status:'ACTIVE'});await p.click('statusButton');assert.deepEqual(p.calls.at(-1),{action:'status',keyId:'synthetic-manual'});
  p.get('keyId').value='';p.get('keyId').handlers.input();const before=p.calls.length;await p.click('statusButton');assert.equal(p.calls.length,before);
 });
+
+test('operator can recover a lost-response request after reopening the page',async()=>{
+ const p=await page();p.get('requestId').value='123e4567-e89b-42d3-a456-426614174000';
+ assert.equal(typeof p.get('requestId').handlers.input,'function');
+ p.get('requestId').handlers.input();
+ p.replies.push({status:'ACTIVE',keyId:'synthetic-recovered'});await p.click('statusButton');
+ assert.deepEqual(p.calls.at(-1),{action:'status',requestId:'123e4567-e89b-42d3-a456-426614174000'});
+ assert.equal(p.get('keyId').value,'synthetic-recovered');
+ assert.equal(p.get('secretOutput').value,'');
+});

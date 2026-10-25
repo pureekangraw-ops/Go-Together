@@ -124,7 +124,10 @@ export async function factoryDirectStatus(env={}){
       x.transport?.status==='READY'&&Object.values(machinery).some(v=>v==='READY');
     return {...base,ok:true,status:'CONNECTED',runtime:x.status==='READY'?'READY':'UNKNOWN',
       sourceSha:/^[a-f0-9]{40}$/.test(x.sourceSha||'')?x.sourceSha:null,
-      machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',
+      machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',
+        VISUAL:Array.isArray(x.machinery?.VISUAL?.intents)&&
+          x.machinery.VISUAL.intents.includes('ALPHA_CUTOUT_V1')
+          ?'STATIC_CARD_AND_ALPHA_CUTOUT_SOURCE_INSTALLED':'STATIC_CARD_PNG',
         LOGIC:x.machinery?.LOGIC?.genericRunner?.status==='READY'?'BOUNDED_WORKSHOP_AND_DWARF':'DWARF_TRAINING_ONLY'},
       workshopReady:x.machinery?.LOGIC?.genericRunner?.status==='READY',
       keyState:authenticated?'AUTHENTICATED':base.keyState,
@@ -208,6 +211,9 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       return failure('FACTORY_NOT_READY',{requestId:id});
     if(h.commandReady!==true)
       return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id,authStatus:h.authStatus});
+    const imageSplitRequested=domain==='VISUAL'&&object(spec.imageSplit);
+    if(imageSplitRequested&&h.capabilities?.VISUAL!=='STATIC_CARD_AND_ALPHA_CUTOUT_SOURCE_INSTALLED')
+      return failure('FACTORY_IMAGE_SPLIT_SOURCE_NOT_INSTALLED',{requestId:id});
     const workshop=domain==='LOGIC'&&object(spec.workshop);
     if(workshop&&!h.workshopReady)return failure('FACTORY_WORKSHOP_NOT_READY',{requestId:id});
     const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha};

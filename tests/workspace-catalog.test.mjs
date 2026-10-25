@@ -50,3 +50,14 @@ test('latest main visual tools retain public and private Hub schema/dispatch par
  assert.match(JSON.stringify(result),/explicit_owner_approval_required/);
  await assert.rejects(()=>appMcp(req('factory_visual_upload_status'),{}),/large_mcp_body_not_allowed/);
  });
+
+test('status correlation stays in payload while mutation retry identities remain stable',async()=>{
+ const sent=[];const env={HUB_V2:{relay:async x=>{sent.push(x);return {receipt:{state:'RESPONDED'},response:{body:JSON.stringify({result:{content:[{type:'text',text:'{}'}]}})}}}}};
+ for(const name of ['factory_visual_upload_status','factory_direct_job_status','factory_visual_upload','factory_direct_submit','observatory_run','goview_publish']){
+  const payload=name==='goview_publish'?{transferId:'synthetic'}:{requestId:'synthetic'};
+  await hubTool(env,name,payload);await hubTool(env,name,payload);
+  const [a,b]=sent.slice(-2);assert.deepEqual(a.payload,b.payload);
+  if(name.endsWith('_status'))assert.notEqual(a.messageId,b.messageId);
+  else assert.equal(a.messageId,b.messageId);
+ }
+});

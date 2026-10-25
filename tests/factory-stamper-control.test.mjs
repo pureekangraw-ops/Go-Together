@@ -97,3 +97,20 @@ test('GO fails closed on malformed one-time key response and transport errors',a
  assert.equal((await factoryKeyStamper(missing,args)).status,'STAMP_TRANSPORT_UNCERTAIN');
  assert.equal((await factoryKeyStamper(f.env,{...args,approved:false})).status,'OWNER_APPROVAL_REQUIRED');
 });
+
+test('mobile slot-wheel HTML has parseable JS, owner API and no browser secret persistence',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const page=await readFile(new URL('../static/factory-key-stamper.html',import.meta.url),'utf8');
+ assert.match(page,/name="viewport"/);
+ assert.match(page,/id="dial"/);
+ assert.match(page,/id="stampButton"/);
+ assert.match(page,/id="registerButton"/);
+ assert.match(page,/id="revokeButton"/);
+ assert.match(page,/x-factory-stamper-intent/);
+ assert.match(page,/fetch\('\/api\/factory-stamper'/);
+ assert.doesNotMatch(page,/localStorage|sessionStorage|indexedDB/);
+ assert.doesNotMatch(page,/GO_FACTORY_RAIL_SECRET|apiToken|secretKey/);
+ const block=page.match(/<script type="module">([\s\S]*?)<\/script>/);
+ assert.ok(block?.[1],'operator script present');
+ assert.doesNotThrow(()=>new Function(block[1]),'operator script compiles');
+});

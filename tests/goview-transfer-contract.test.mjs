@@ -14,8 +14,8 @@ test('actual GO adapter → pinned GOVIEW Worker: selected read, proposal, Studi
  const {invokeGoview}=await import(pathToFileURL(resolve(root,'goview-package-bridge/go-adapter.mjs')));
  const data=new Map();let writes=0,failAfterWrite=false;
  const env={GO_WRITE_TOKEN:'synthetic-go-token'.repeat(2),ANDROID_READ_TOKEN:'synthetic-read-token'.repeat(2),ANDROID_UPLOAD_TOKEN:'synthetic-upload-token'.repeat(2),PACKAGES:{
-  get:async k=>data.has(k)?{size:Buffer.byteLength(data.get(k)),text:async()=>data.get(k),httpEtag:'synthetic'}:null,
-  put:async(k,v,o)=>{if(o?.onlyIf?.etagDoesNotMatch==='*'&&data.has(k))return null;data.set(k,String(v));writes++;if(failAfterWrite)throw Error('synthetic lost response');return {}}
+  get:async k=>data.has(k)?{size:Buffer.byteLength(data.get(k)),text:async()=>data.get(k),httpEtag:'synthetic',etag:'synthetic'}:null,
+  put:async(k,v,o)=>{if(o?.onlyIf?.etagDoesNotMatch==='*'&&data.has(k))return null;if(o?.onlyIf?.etagMatches&&(!data.has(k)||o.onlyIf.etagMatches!=='synthetic'))return null;data.set(k,String(v));writes++;if(failAfterWrite)throw Error('synthetic lost response');return {}}
  }};
  const go={GOVIEW_GO:{invoke:(name,args)=>invokeGoview(env,name,args)}};
  const request=(id,token,method='GET',value)=>worker.fetch(new Request('https://synthetic.invalid/v1/transfers/'+id,{method,headers:{authorization:'Bearer '+token},...(value?{body:JSON.stringify(value)}:{})}),env);

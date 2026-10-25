@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus}
   from '../worker/factory-direct.mjs';
 
@@ -142,3 +142,4 @@ test('Direct GO MCP only exposes simple job commands, never requires Work Pass',
     ['domain','spec','approved']);
   assert.ok(!JSON.stringify(tools.find(t=>t.name==='factory_direct_submit').inputSchema).includes('workPass'));
 });
+

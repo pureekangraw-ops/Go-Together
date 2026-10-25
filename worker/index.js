@@ -2,7 +2,8 @@ import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
-import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent} from './factory-direct.mjs';
+import {createFactoryReport} from '../portable-factory-report.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -65,7 +66,7 @@ for(const raw of r.results||[]){const x=memory(raw),got=tokenize([x.title,x.titl
 hits.sort((a,b)=>b.score-a.score||b.memory.updated_at.localeCompare(a.memory.updated_at));const rows=hits.slice(0,Math.min(50,Math.max(1,Number(limit)||25)));
 return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical matching only; GO interprets the evidence.'};}
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
-async function body(req,allowEmpty=false){const txt=await req.text();if(txt.length>1000000)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
+async function body(req,allowEmpty=false,maxLength=1000000){const txt=await req.text();if(txt.length>maxLength)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
@@ -96,7 +97,14 @@ const GO_FACTORY_VISUAL=SCHEMA({
 const GO_FACTORY_LOGIC=SCHEMA({
   placement:{type:'string',const:'DWARF-01_TRAINING'}
 },['placement']);
-const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_LOGIC,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+const GO_FACTORY_SPLIT=SCHEMA({imageSplit:SCHEMA({
+ sourceRef:{type:'string',pattern:'^r2://factory/edge-source/go/[a-f0-9]{64}\\.png#sha256=[a-f0-9]{64}$'},
+ count:{type:'integer',minimum:1,maximum:12},
+ columns:{type:'integer',minimum:1,maximum:12},
+ canvas:{type:'integer',minimum:64,maximum:1024},
+ names:{type:'array',minItems:1,maxItems:12,items:{type:'string',pattern:'^[A-Za-z0-9_-]{1,64}$'}}
+},['sourceRef','count','columns','canvas','names'])},['imageSplit']);
+const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,SCHEMA({workshop:{type:"object"}},["workshop"])]};
 
 const OBS_ACTION=SCHEMA({type:{type:'string',enum:['navigate','back','forward','reload','scroll','click','type']},url:Q,selector:Q,value:Q,y:{type:'number'}},['type']);
 const OBS_TOOLS=[
@@ -116,6 +124,9 @@ export const tools=[
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
  {name:'goview_publish',description:'Publish owner-requested GO map package and verify exact remote bytes. Does not apply on Android. Preserve returned transfer ID/version/full SHA for Android preview; on uncertain outcome read exact version before retry.',inputSchema:SCHEMA({...GOVIEW_IDENTITY,package:{type:'string',maxLength:1048832}},[...GOVIEW_REQUIRED,'package'])},
  {name:'goview_readback',description:'Read explicitly selected remote map artifact by exact version and expected full SHA-256. No listing, GPS/history collection or handset access. Handset receipt must be exported by owner.',inputSchema:SCHEMA(GOVIEW_IDENTITY,GOVIEW_REQUIRED),annotations:{readOnlyHint:true}},
+ {name:'goview_focus_point',description:'Ask the owner GOVIEW map to move its live camera to these coordinates while visible. No GPS read and no map write. Call goview_command_status for device receipt.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude'])},
+ {name:'goview_propose_pin',description:'Propose a labelled place coordinate to owner GOVIEW. Device shows owner confirmation; no write until approved. This is an unverified suggested location.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},label:{type:'string',minLength:1,maxLength:140},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude','label'])},
+ {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},
@@ -127,10 +138,21 @@ export const tools=[
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
-{name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
+{name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
   domain:{type:'string',enum:['CODE','VISUAL','LOGIC']},spec:GO_FACTORY_SPEC,
   requestId:Q,approved:{type:'boolean',const:true}
 },['domain','spec','approved']),annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},
+{name:'factory_visual_upload',description:'Upload owner-approved PNG sheet through signed GO to Factory R2. Returns immutable sourceRef and independent status readback, not finished assets.',inputSchema:SCHEMA({
+ pngBase64:{type:'string',minLength:80,maxLength:5592408},
+ sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},requestId:Q,
+ approved:{type:'boolean',const:true}
+},['pngBase64','sha256','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
+{name:'factory_visual_zip_chunk',description:'Read one SHA-256 verified segment of a receipt-bound VISUAL ZIP (up to 256 KiB). Pass full expected ZIP digest from the verified image-pack manifest; does not execute anything.',inputSchema:SCHEMA({
+ receiptId:Q,artifactRef:Q,offset:{type:'integer',minimum:0},
+ length:{type:'integer',minimum:1,maximum:262144},
+ expectedSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}
+},['receiptId','artifactRef','offset','expectedSha256']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
+{name:'factory_visual_upload_status',description:'Read existing signed Factory image upload receipt without redoing an effect.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_workshop_content',description:'Owner-approved nonsecret Workshop JSON content ingestion on the existing signed Factory rail. Returns an immutable content reference and digest; no machine execution. No credentials or customer data.',inputSchema:SCHEMA({content:{},approved:{type:'boolean',const:true}},['content','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_job_status',description:'Read Factory job/receipt by a prior GO-generated requestId; never reexecutes work.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_readback',description:'Read one Factory-owned GO job receipt by receiptId; no Work Pass and no machine execution.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
@@ -151,6 +173,9 @@ if(name==='factory_direct_submit'){
  if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');
  return factoryDirectSubmit(env,{domain:a.domain,spec:a.spec,requestId:a.requestId},true);
 }
+if(name==='factory_visual_upload'){restrict(a,['pngBase64','sha256','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryVisualUpload(env,{pngBase64:a.pngBase64,sha256:a.sha256,requestId:a.requestId},true);}
+if(name==='factory_visual_zip_chunk'){restrict(a,['receiptId','artifactRef','offset','length','expectedSha256']);return factoryVisualZipChunk(env,a);}
+if(name==='factory_visual_upload_status'){restrict(a,['requestId']);return factoryVisualUploadStatus(env,a);}
 if(name==='factory_workshop_content'){restrict(a,['content','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryWorkshopContent(env,{content:a.content},true);}
 if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryDirectJobStatus(env,a);}
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
@@ -173,7 +198,14 @@ function mcpReply(id,result,modern=false){
 }
 async function mcp(req,env,ctx){
  if(req.method!=='POST')return error(405,'method_not_allowed');
- const x=await body(req,true);
+ const reportedBytes=Number(req.headers.get('content-length')||0);
+ if(reportedBytes>7_000_000)return error(413,'mcp_body_too_large');
+ if((!Number.isFinite(reportedBytes)||reportedBytes<0||reportedBytes>1_000_000)&&
+    !(await owner(req,env,ctx)))return error(401,'owner_auth_required');
+ const x=await body(req,true,7_000_000);
+ if(JSON.stringify(x).length>1_000_000 &&
+    !(x.method==='tools/call'&&x.params?.name==='factory_visual_upload'))
+    return error(413,'large_mcp_body_not_allowed');
  if(!['initialize','server/discover','tools/list','notifications/initialized'].includes(x.method) && !(await owner(req,env,ctx)))return reply({error:'owner_auth_required'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource/mcp"'});
  const isModern=req.headers.get('MCP-Protocol-Version')===MCP_NEW||x.params?._meta?.['io.modelcontextprotocol/protocolVersion']===MCP_NEW;
  if(x.method==='server/discover')return mcpReply(x.id,{
@@ -284,7 +316,10 @@ return env.ASSETS.fetch(req);
 export async function appMcp(req,env){
  const group=new URL(req.url).pathname.match(/^\/hub-mcp\/(brain|factory|observatory|goview)$/)?.[1];
  if(!group)return error(404,'not_found');if(req.method!=='POST')return error(405,'method_not_allowed');
- const x=await body(req);
+ const x=await body(req,false,7_000_000);
+ if(JSON.stringify(x).length>1_000_000 &&
+    !(x.method==='tools/call'&&x.params?.name==='factory_visual_upload'))
+  throw new Bad(413,'large_mcp_body_not_allowed');
  const source=tools.filter(t=>hubGroup(t.name)===group);
  if(x.method==='notifications/initialized')return new Response(null,{status:202});
  if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'go-'+group,version:'1.0.0'}});

@@ -1,6 +1,6 @@
 export function hubGroup(name){
  if(name.startsWith('brain_'))return 'brain';
- if(name.startsWith('factory_direct_')||name==='factory_workshop_content')return 'factory';
+ if(name.startsWith('factory_direct_')||name==='factory_workshop_content'||['factory_visual_upload','factory_visual_upload_status','factory_visual_zip_chunk'].includes(name))return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
  for(const p of ['github','cloudflare','notion','google'])if(name.startsWith(p+'_'))return p;
@@ -8,7 +8,10 @@ export function hubGroup(name){
 }
 export async function hubTool(env,name,payload){
  if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');
- const retryIdentity=payload?.requestId||(name==='goview_publish'?payload?.transferId:null);
+ // These request IDs identify the source operation being observed, not a
+ // retry of the read itself. Each poll needs a new Hub delivery/response.
+ const sourceStatusRead=['factory_visual_upload_status','factory_direct_job_status'].includes(name);
+ const retryIdentity=sourceStatusRead?null:(payload?.requestId||(name==='goview_publish'?payload?.transferId:null));
  const messageId=retryIdentity?'go_'+BufferlessHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name+'\n'+retryIdentity))):crypto.randomUUID();
  // One attempt only. An ambiguous delivery is returned, never retried.
  const delivered=await env.HUB_V2.relay({connectorId:hubGroup(name),name,payload,messageId});

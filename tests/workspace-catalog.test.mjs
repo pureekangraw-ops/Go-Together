@@ -22,3 +22,31 @@ test('Workspace read advertises and forwards known receipt lower bound',async()=
  const result=await hubTool(env,'google_workspace_read',{workId:'WORK-ONE',minimumVersion:2});
  assert.equal(sent.payload.minimumVersion,2);assert.equal(result.status,'UNKNOWN');
 });
+
+test('latest main visual tools retain public and private Hub schema/dispatch parity',async()=>{
+ const {appMcp}=await import('../worker/index.js');
+ const {hubGroup}=await import('../worker/hub-client.mjs');
+ const request=(path,method,params)=>new Request('https://go-together.pureekangraw.workers.dev'+path,{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+ const publicList=await (await worker.fetch(request('/mcp','tools/list'),{},{})).json();
+ const privateList=await (await appMcp(request('/hub-mcp/factory','tools/list'),{})).json();
+ const sent=[];const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.test',HUB_V2:{relay:async x=>{sent.push(x);const r=await appMcp(request('/hub-mcp/factory','tools/call',{name:x.name,arguments:x.payload}),{});return {receipt:{state:'RESPONDED'},response:{body:await r.text()}};}}};
+ const owner={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.test'})}};
+ for(const name of ['factory_visual_upload','factory_visual_upload_status','factory_visual_zip_chunk']){
+  assert.equal(hubGroup(name),'factory');
+  assert.deepEqual(privateList.result.tools.find(t=>t.name===name).inputSchema,publicList.result.tools.find(t=>t.name===name).inputSchema);
+  const args={};const before=sent.length;
+  assert.equal((await worker.fetch(request('/mcp','tools/call',{name,arguments:args}),env,{})).status,401);assert.equal(sent.length,before);
+  await worker.fetch(request('/mcp','tools/call',{name,arguments:args}),env,owner);
+  assert.equal(sent.at(-1).connectorId,'factory');assert.equal(sent.at(-1).name,name);
+ }
+ const submit=privateList.result.tools.find(t=>t.name==='factory_direct_submit');
+ assert.ok(JSON.stringify(submit.inputSchema).includes('imageSplit'));
+});
+
+ test('private Factory adapter preserves the bounded large-upload exception',async()=>{
+ const {appMcp}=await import('../worker/index.js');
+ const req=name=>new Request('https://go-together.pureekangraw.workers.dev/hub-mcp/factory',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{pngBase64:'A'.repeat(1000100)}}})});
+ const result=await (await appMcp(req('factory_visual_upload'),{})).json();
+ assert.match(JSON.stringify(result),/explicit_owner_approval_required/);
+ await assert.rejects(()=>appMcp(req('factory_visual_upload_status'),{}),/large_mcp_body_not_allowed/);
+ });

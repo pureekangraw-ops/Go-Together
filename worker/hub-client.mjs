@@ -1,6 +1,6 @@
 export function hubGroup(name){
  if(name.startsWith('brain_'))return 'brain';
- if(name.startsWith('factory_direct_')||name==='factory_workshop_content')return 'factory';
+ if(name.startsWith('factory_direct_')||name==='factory_workshop_content'||['factory_visual_upload','factory_visual_upload_status','factory_visual_zip_chunk'].includes(name))return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
  for(const p of ['github','cloudflare','notion','google'])if(name.startsWith(p+'_'))return p;

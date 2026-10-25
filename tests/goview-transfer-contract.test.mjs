@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {goviewDirect} from '../worker/goview-direct.mjs';
 import {snapshot,proposal,studio,receipt} from './goview-transfer-fixtures.mjs';
 // Opt-in cross-repository fixture. Extract the pinned contract commit locally:
-// git -C <observatory> archive 2be838f6799cb927f940f21f3af21b830442a8e7 \
+// git -C <observatory> archive c84f41c962878bf0d74b484ba5f48bdee320c521 \
 //   goview-package-bridge android-browser/app/src/main/assets/goview-studio/engine.js | tar -x -C <fixture>
 // GOVIEW_CONTRACT_ROOT=<fixture> node --test tests/goview-transfer-contract.test.mjs
 const root=process.env.GOVIEW_CONTRACT_ROOT;

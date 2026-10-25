@@ -77,3 +77,12 @@ test('missing binding and provider rejection remain explicit and sanitized',asyn
  const s=snapshot();assert.equal((await goviewDirect({},'goview_transfer_read',read(s))).status,'GOVIEW_BINDING_NOT_CONFIGURED');
  const result=await goviewDirect(fixture(()=>({ok:false,status:'PRIVATE_TOKEN',payload:'PRIVATE'})).env,'goview_transfer_read',read(s));assert.equal(result.status,'TRANSFER_UPSTREAM_REJECTED');assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
 });
+
+test('publish rejects changed snapshot identity even when payload bytes and digest are unchanged',async()=>{
+ const s=snapshot(),p=proposal(s),other={...p,identity:{...p.identity,snapshotSha256:'a'.repeat(64)}};
+ const f=fixture(name=>ok(name==='goview_transfer_read'?s:other));
+ const result=await goviewDirect(f.env,'goview_transfer_publish',{envelope:p});
+ assert.equal(result.ok,false);assert.equal(result.readbackRequired,true);
+ assert.equal(result.transferId,p.transferId);assert.equal(result.sha256,p.sha256);
+ assert.deepEqual(f.calls.map(x=>x.name),['goview_transfer_read','goview_transfer_publish']);
+});

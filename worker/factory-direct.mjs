@@ -393,6 +393,50 @@ const FACTORY_STAMP_OPERATIONS=Object.freeze({
   status:'/station/go-key-status',
   revoke:'/station/go-key-revoke'
 });
+// Project each response shape; never forward unknown upstream objects, even
+// inside slots/presets. Known fields also reject objects and token-like text.
+const stampText=(max,pattern)=>x=>typeof x==='string'&&x.length<=max&&
+  !/fsk1_[a-f0-9]{32}\.[a-f0-9]{64}/i.test(x)&&(!pattern||pattern.test(x));
+const stampEnum=(...values)=>x=>values.includes(x);
+const stampScope=stampEnum('CODE:BUILD','VISUAL:ASSET','LOGIC:READ','FACTORY:STATUS');
+const stampTime=x=>x===null||(stampText(40)(x)&&Number.isFinite(Date.parse(x)));
+const stampSlotFields={slotId:stampText(40,/^[A-Z][A-Z0-9_]{2,39}$/),
+  preset:stampEnum('CODE_RUNNER','VISUAL_RUNNER','LOGIC_RUNNER','GUEST_OBSERVER'),
+  recipient:stampText(80,/^[A-Za-z0-9][A-Za-z0-9_.:-]{1,79}$/),description:stampText(150),
+  status:stampEnum('ACTIVE'),scopes:x=>Array.isArray(x)&&x.length<=4&&x.every(stampScope),
+  maxTtlSeconds:x=>Number.isInteger(x)&&x>=300&&x<=86400,createdAt:stampTime};
+const stampKeyFields={schema:stampEnum('FACTORY_KEY_STAMP_V1'),
+  keyId:stampText(32,/^[a-f0-9]{32}$/),slotId:stampSlotFields.slotId,
+  recipient:stampSlotFields.recipient,scopes:stampSlotFields.scopes,
+  issuedAt:stampTime,expiresAt:stampTime,revokedAt:stampTime,
+  keyStatus:stampEnum('ACTIVE','EXPIRED','REVOKED'),
+  receiptId:stampText(38,/^stamp-[a-f0-9]{32}$/),secretReturned:x=>typeof x==='boolean'};
+function stampPick(value,fields){
+  if(!object(value))throw Error('STAMP_RESPONSE_INTEGRITY_INVALID');
+  const out={};for(const [key,valid] of Object.entries(fields))if(Object.hasOwn(value,key)){
+    if(!valid(value[key]))throw Error('STAMP_RESPONSE_INTEGRITY_INVALID');out[key]=value[key];
+  }return out;
+}
+function stampMetadata(action,value){
+  if(action==='list'){
+    if(!Array.isArray(value.slots)||value.slots.length>100||!Array.isArray(value.presets)||value.presets.length>4)
+      throw Error('STAMP_RESPONSE_INTEGRITY_INVALID');
+    return {...stampPick(value,{schema:stampEnum('FACTORY_KEY_SLOTS_V1'),truncated:x=>typeof x==='boolean',
+      readOnly:x=>x===true,observedAt:stampTime}),
+      slots:value.slots.map(slot=>stampPick(slot,stampSlotFields)),
+      presets:value.presets.map(preset=>stampPick(preset,{preset:stampSlotFields.preset,
+        name:stampText(80),scopes:stampSlotFields.scopes,maxTtlSeconds:stampSlotFields.maxTtlSeconds}))};
+  }
+  const statuses={register:['SLOT_REGISTERED','SLOT_EXISTS'],stamp:['KEY_STAMPED','ALREADY_STAMPED'],
+    status:['ACTIVE','EXPIRED','REVOKED'],revoke:['KEY_REVOKED','KEY_ALREADY_REVOKED']};
+  if(!statuses[action].includes(value.status))throw Error('STAMP_RESPONSE_INTEGRITY_INVALID');
+  if(action==='register')return {status:value.status,slot:stampPick(value.slot,stampSlotFields)};
+  const fields=action==='stamp'?{...stampKeyFields,delivery:stampEnum('ONE_TIME_OWNER_ONLY'),
+    nextAction:stampEnum('USE_PREVIOUSLY_DELIVERED_KEY_OR_REVOKE_AND_STAMP_NEW_REQUEST')}:stampKeyFields;
+  const out={...stampPick(value,fields),status:value.status};
+  if(action==='stamp'&&value.status==='KEY_STAMPED')out.key=value.key; // validated separately
+  return out;
+}
 export async function factoryKeyStamper(env,command={}){
   if(!object(command)||typeof command.action!=='string'||
      !Object.hasOwn(FACTORY_STAMP_OPERATIONS,command.action))
@@ -408,7 +452,7 @@ export async function factoryKeyStamper(env,command={}){
     const r=await jsonRequest(env,'POST',FACTORY_STAMP_OPERATIONS[action],body);
     const value=r.data;
     if(!r.ok||value?.ok!==true)
-      return failure('STAMP_FACTORY_DENIED',{reason:value?.reason||value?.status||'STAMP_FACTORY_UNAVAILABLE',
+      return failure('STAMP_FACTORY_DENIED',{reason:typeof value?.reason==='string'&&/^STAMP_[A-Z_]{1,64}$/.test(value.reason)?value.reason:'STAMP_FACTORY_UNAVAILABLE',
         httpStatus:r.httpStatus});
     if(action!=='stamp'&&('key' in value||value.secretReturned===true))
       return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
@@ -424,11 +468,12 @@ export async function factoryKeyStamper(env,command={}){
           return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
       }else return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
     }
-    return {ok:true,...value};
+    try{return {ok:true,...stampMetadata(action,value)};}
+    catch{return failure('STAMP_RESPONSE_INTEGRITY_INVALID');}
   }catch{
     // A write may have completed despite transport loss. Do NOT retry blindly:
     // reconcile by requestId and revoke if the one-time secret was lost.
     return failure('STAMP_TRANSPORT_UNCERTAIN',{
-      requestId:typeof command.requestId==='string'?command.requestId:null});
+      requestId:typeof command.requestId==='string'&&UUID.test(command.requestId)?command.requestId:null});
   }
 }

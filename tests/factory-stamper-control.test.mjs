@@ -124,3 +124,44 @@ test('non-issuance responses cannot disclose one-time token material',async()=>{
   assert.equal(JSON.stringify(result).includes(token),false);
  }
 });
+
+test('Stamper projects nested operation metadata instead of forwarding unknown fields',async()=>{
+ const f=fixture(),hidden={key:token};
+ const slot={slotId:'ATLAS_VISUAL',preset:'VISUAL_RUNNER',recipient:'ATLAS',scopes:['VISUAL:ASSET'],maxTtlSeconds:86400,receipt:hidden};
+ const samples=[
+  ['status',{status:'ACTIVE',keyId:KEY_ID,secretReturned:false,receipt:hidden}],
+  ['revoke',{status:'KEY_REVOKED',keyId:KEY_ID,secretReturned:false,receipt:hidden}],
+  ['register',{status:'SLOT_REGISTERED',slot,receipt:hidden}],
+  ['list',{slots:[slot],presets:[{preset:'VISUAL_RUNNER',name:'Visual',scopes:['VISUAL:ASSET'],maxTtlSeconds:86400,receipt:hidden}],receipt:hidden}],
+  ['stamp',{status:'ALREADY_STAMPED',keyId:KEY_ID,secretReturned:false,receipt:hidden}],
+ ];
+ for(const [action,payload] of samples){
+  const env={...f.env,FACTORY_DIRECT:{fetch:async()=>Response.json({ok:true,debug:token,...payload})}};
+  const out=await factoryKeyStamper(env,{action,approved:true,keyId:KEY_ID});
+  assert.equal(out.ok,true);assert.equal(JSON.stringify(out).includes(token),false);
+  assert.equal('receipt' in out,false);assert.equal('debug' in out,false);
+  if(out.slot)assert.equal('receipt' in out.slot,false);
+  if(out.slots)assert.equal('receipt' in out.slots[0],false);
+  if(out.presets)assert.equal('receipt' in out.presets[0],false);
+ }
+});
+test('Stamper rejects nested values in known scalar fields and bounds failure reasons',async()=>{
+ const f=fixture();
+ for(const payload of [{ok:true,status:'ACTIVE',keyId:{key:token}},
+   {ok:true,status:'ACTIVE',keyId:KEY_ID,recipient:{key:token}},
+   {ok:true,status:'ACTIVE',keyId:KEY_ID,scopes:[{key:token}]},
+   {ok:false,status:token,debug:token,receipt:{key:token}},
+   {ok:false,reason:{key:token}},{ok:false,reason:token},{ok:false,reason:'STAMP_'+ 'X'.repeat(1000)}]){
+  const env={...f.env,FACTORY_DIRECT:{fetch:async()=>Response.json(payload)}};
+  const out=await factoryKeyStamper(env,{action:'status',keyId:KEY_ID});
+  assert.equal(out.ok,false);assert.equal(JSON.stringify(out).includes(token),false);
+  if(out.reason)assert.ok(out.reason.length<=80);
+ }
+});
+test('only validated first issuance exposes the top-level one-time key',async()=>{
+ const f=fixture();
+ const payload={ok:true,status:'KEY_STAMPED',keyId:KEY_ID,key:token,secretReturned:true,receipt:{key:token}};
+ const env={...f.env,FACTORY_DIRECT:{fetch:async()=>Response.json(payload)}};
+ const out=await factoryKeyStamper(env,{action:'stamp',approved:true});
+ assert.equal(out.key,token);assert.equal('receipt' in out,false);
+});

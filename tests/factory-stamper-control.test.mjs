@@ -114,3 +114,13 @@ test('mobile slot-wheel HTML has parseable JS, owner API and no browser secret p
  assert.ok(block?.[1],'operator script present');
  assert.doesNotThrow(()=>new Function(block[1]),'operator script compiles');
 });
+
+test('non-issuance responses cannot disclose one-time token material',async()=>{
+ const f=fixture();
+ for(const action of ['list','register','status','revoke']){
+  const env={...f.env,FACTORY_DIRECT:{fetch:async()=>Response.json({ok:true,status:'ACTIVE',key:token,secretReturned:true})}};
+  const result=await factoryKeyStamper(env,{action,keyId:KEY_ID,approved:true});
+  assert.equal(result.status,'STAMP_RESPONSE_INTEGRITY_INVALID');
+  assert.equal(JSON.stringify(result).includes(token),false);
+ }
+});

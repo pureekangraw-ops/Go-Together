@@ -410,6 +410,8 @@ export async function factoryKeyStamper(env,command={}){
     if(!r.ok||value?.ok!==true)
       return failure('STAMP_FACTORY_DENIED',{reason:value?.reason||value?.status||'STAMP_FACTORY_UNAVAILABLE',
         httpStatus:r.httpStatus});
+    if(action!=='stamp'&&('key' in value||value.secretReturned===true))
+      return failure('STAMP_RESPONSE_INTEGRITY_INVALID');
     if(action==='stamp'){
       if(value.status==='KEY_STAMPED'){
         if(value.secretReturned!==true||typeof value.key!=='string'||

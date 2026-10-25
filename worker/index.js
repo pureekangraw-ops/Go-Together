@@ -81,8 +81,8 @@ if(p==='/api/factory-stamper'){
      !/^application\/json(?:\s*;|$)/i.test(req.headers.get('content-type')||''))
     return error(403,'same_origin_owner_action_required');
   const action=await body(req,false,4096);
-  restrict(action,['action','slotId','preset','recipient','description','requestId','ttlSeconds','keyId','approved']);
-  if(!['register','stamp','status','revoke'].includes(action.action))
+  restrict(action,['action','slotId','preset','recipient','description','requestId','ttlSeconds','keyId','approved','key','scope']);
+  if(!['register','stamp','status','revoke','probe'].includes(action.action))
     return error(400,'invalid_stamp_action');
   if(['register','stamp','revoke'].includes(action.action)&&action.approved!==true)
     return error(403,'explicit_owner_approval_required');

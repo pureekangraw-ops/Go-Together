@@ -185,3 +185,22 @@ test('private Stamper probe keeps bearer in fixed binding request and projects e
  env.FACTORY_DIRECT.fetch=async()=>{throw Error(token);};
  assert.deepEqual(await factoryKeyStamper(env,args),{ok:false,status:'STAMP_PROBE_UNAVAILABLE',executed:false});
 });
+
+test('owner probe route allows exact private probe and denies unauthenticated/cross-origin dispatch',async()=>{
+ const f=fixture();let calls=0;
+ f.env.HUB_V2={relay(){throw Error('NO_HUB_PROBE');}};
+ f.env.FACTORY_DIRECT={fetch:async req=>{
+  calls++;assert.equal(req.url,'https://factory-district.internal/station/key-probe');
+  assert.equal(req.headers.get('authorization'),'Bearer '+token);
+  assert.deepEqual(await req.json(),{recipient:'ATLAS',scope:'FACTORY:STATUS'});
+  return Response.json({ok:true,status:'KEY_ACCEPTED',keyId:KEY_ID,recipient:'ATLAS',scope:'FACTORY:STATUS',expiresAt:'2026-10-26T00:00:00Z'});
+ }};
+ const args={action:'probe',key:token,recipient:'ATLAS',scope:'FACTORY:STATUS'};
+ assert.equal((await f.post(args,{},noOwner)).status,401);
+ assert.equal((await f.post(args,{origin:'https://other.example.test'})).status,403);
+ assert.equal((await f.post(args,{'x-factory-stamper-intent':''})).status,403);
+ assert.equal(calls,0);
+ const r=await f.post(args);assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/no-store/);
+ const out=await r.json();assert.equal(out.accepted,true);assert.equal(out.executed,false);assert.equal(JSON.stringify(out).includes(token),false);assert.equal(calls,1);
+ assert.equal((await f.post({...args,url:'https://other.example.test'})).status,400);assert.equal(calls,1);
+});

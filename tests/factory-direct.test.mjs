@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 import {factoryDirectStatus} from '../worker/factory-direct.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev';
@@ -116,3 +116,5 @@ test('Workshop content tool is discoverable, owner-only and explicitly approved 
   assert.match(JSON.stringify(await extra.json()),/unknown_field:token/);
   assert.equal(calls,0);
 });
+
+

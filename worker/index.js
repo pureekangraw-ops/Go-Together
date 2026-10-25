@@ -199,6 +199,8 @@ export const tools=[
 
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
+// Keep GO22's typed transfer rail and byte limits on its existing binding.
+if(['goview_transfer_read','goview_transfer_publish','goview_transfer_receipt'].includes(name))return goviewDirect(env,name,a);
 if(!local&&hubGroup(name))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}

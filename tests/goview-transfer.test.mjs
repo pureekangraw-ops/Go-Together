@@ -86,3 +86,18 @@ test('publish rejects changed snapshot identity even when payload bytes and dige
  assert.equal(result.transferId,p.transferId);assert.equal(result.sha256,p.sha256);
  assert.deepEqual(f.calls.map(x=>x.name),['goview_transfer_read','goview_transfer_publish']);
 });
+
+test('typed Studio matches canonical six-digit version range before any dispatch',async()=>{
+ const last=studio(999999),valid=fixture(()=>ok(last));
+ assert.equal((await goviewDirect(valid.env,'goview_transfer_publish',{envelope:last})).ok,true);
+ assert.equal(valid.calls.length,1);
+ const overflow=studio(1000000),invalid=fixture(()=>ok(overflow));
+ assert.equal((await goviewDirect(invalid.env,'goview_transfer_publish',{envelope:overflow})).status,'INVALID_TRANSFER_ARGUMENTS');
+ assert.equal(invalid.calls.length,0);
+ const listed=await (await mcp({},owner,'tools/list')).json();
+ const identity=listed.result.tools.find(t=>t.name==='goview_transfer_publish').inputSchema.properties.envelope.properties.identity;
+ assert.equal(identity.oneOf.find(s=>s.properties.mapId).properties.version.maximum,999999);
+ // GeoJSON revisions use their own safe-integer contract, not Studio route versions.
+ const s=snapshot(),p=JSON.parse(s.payload);s.identity.baseVersion=1000000;p.goview.version=1000000;p.captureReceipt.version=1000000;s.payload=JSON.stringify(p);s.sha256=hash(s.payload);
+ assert.equal((await goviewDirect(fixture(()=>ok(s)).env,'goview_transfer_read',read(s))).ok,true);
+});

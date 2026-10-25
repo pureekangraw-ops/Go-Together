@@ -124,7 +124,7 @@ const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
  payloadType:{type:'string',enum:['goview.map-update','goview.map.package.v1']},
  identity:{oneOf:[
   SCHEMA({captureId:GOVIEW_TRANSFER_ID,baseVersion:{type:'integer',minimum:0},snapshotSha256:GOVIEW_TRANSFER_SHA},['captureId','baseVersion','snapshotSha256']),
-  SCHEMA({mapId:GOVIEW_IDENTITY.mapId,version:{type:'integer',minimum:1,maximum:1000000}},['mapId','version'])
+  SCHEMA({mapId:GOVIEW_IDENTITY.mapId,version:{type:'integer',minimum:1,maximum:999999}},['mapId','version'])
  ]},sha256:GOVIEW_TRANSFER_SHA,payload:{type:'string',maxLength:1048576}
 },['schema','transferId','operation','payloadType','identity','sha256','payload']);
 const tools=[

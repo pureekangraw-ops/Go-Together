@@ -79,7 +79,8 @@ async function validateTransfer(e){
     ensure(data.schema===1,"unsupported map schema");
     ensure(string(data.mapId,70) && /^[a-zA-Z0-9_-]+$/.test(data.mapId),"invalid mapId");
     ensure(string(data.title,140),"map title required");
-    ensure(Number.isSafeInteger(data.version) && data.version>=1 && data.version<=1000000,"invalid version");
+    // Canonical Studio HTTP route accepts at most six version digits.
+    ensure(Number.isSafeInteger(data.version) && data.version>=1 && data.version<=999999,"invalid version");
     ensure(data.origin && typeof data.origin==="object" && Number.isFinite(data.origin.lat) &&
       Math.abs(data.origin.lat)<=90 && Number.isFinite(data.origin.lng) && Math.abs(data.origin.lng)<=180,"origin WGS84");
     for(const key of ["nodes","roads","areas","pois"])ensure(Array.isArray(data[key]),"missing "+key);

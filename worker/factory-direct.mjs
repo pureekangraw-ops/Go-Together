@@ -124,7 +124,10 @@ export async function factoryDirectStatus(env={}){
       x.transport?.status==='READY'&&Object.values(machinery).some(v=>v==='READY');
     return {...base,ok:true,status:'CONNECTED',runtime:x.status==='READY'?'READY':'UNKNOWN',
       sourceSha:/^[a-f0-9]{40}$/.test(x.sourceSha||'')?x.sourceSha:null,
-      machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',VISUAL:'STATIC_CARD_PNG',
+      machinery,capabilities:{CODE:'BOUNDED_EDGE_JS',
+        VISUAL:Array.isArray(x.machinery?.VISUAL?.intents)&&
+          x.machinery.VISUAL.intents.includes('ALPHA_CUTOUT_V1')
+          ?'STATIC_CARD_AND_ALPHA_CUTOUT_SOURCE_INSTALLED':'STATIC_CARD_PNG',
         LOGIC:x.machinery?.LOGIC?.genericRunner?.status==='READY'?'BOUNDED_WORKSHOP_AND_DWARF':'DWARF_TRAINING_ONLY'},
       workshopReady:x.machinery?.LOGIC?.genericRunner?.status==='READY',
       keyState:authenticated?'AUTHENTICATED':base.keyState,
@@ -208,6 +211,9 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       return failure('FACTORY_NOT_READY',{requestId:id});
     if(h.commandReady!==true)
       return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id,authStatus:h.authStatus});
+    const imageSplitRequested=domain==='VISUAL'&&object(spec.imageSplit);
+    if(imageSplitRequested&&h.capabilities?.VISUAL!=='STATIC_CARD_AND_ALPHA_CUTOUT_SOURCE_INSTALLED')
+      return failure('FACTORY_IMAGE_SPLIT_SOURCE_NOT_INSTALLED',{requestId:id});
     const workshop=domain==='LOGIC'&&object(spec.workshop);
     if(workshop&&!h.workshopReady)return failure('FACTORY_WORKSHOP_NOT_READY',{requestId:id});
     const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha};
@@ -239,12 +245,33 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       requestId:id,jobId:x.jobId,receiptId:x.receiptId,
       sourceSha:h.sourceSha,evidenceRefs:back.evidenceRefs,executed:true,
       deliveredBytes:false,capability:'DWARF_TRAINING_ONLY'};
-    const suffix=domain==='CODE'?'/main.js':'/render.png';
+    const imageSplit=domain==='VISUAL'&&object(spec.imageSplit);
+    const suffix=domain==='CODE'?'/main.js':imageSplit?'/split-manifest.json':'/render.png';
     const ref=back.artifactRefs.find(v=>typeof v==='string'&&
       v.startsWith('r2://factory/edge-results/')&&v.endsWith(suffix));
     if(!ref)return failure('GO_ARTIFACT_REF_MISSING',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
     const artifact=await factoryDirectArtifact(env,{receiptId:x.receiptId,artifactRef:ref});
     if(!artifact.ok)return {...artifact,requestId:id,jobId:x.jobId,receiptId:x.receiptId};
+    if(imageSplit){
+      let manifest;
+      try{manifest=JSON.parse(atob(artifact.base64));}
+      catch{return failure('GO_IMAGE_MANIFEST_INVALID',{requestId:id,receiptId:x.receiptId});}
+      if(manifest?.schema!=='FACTORY_VISUAL_SPLIT_MANIFEST_V1'||
+         manifest.count!==spec.imageSplit.count||manifest.canvas!==spec.imageSplit.canvas||
+         !Array.isArray(manifest.files)||manifest.files.length!==manifest.count||
+         !/^[a-f0-9]{64}$/.test(manifest.zipSha256||'')||
+         typeof manifest.zipRef!=='string'||!back.artifactRefs.includes(manifest.zipRef)||
+         manifest.sourceSha256!==spec.imageSplit.sourceRef.split('/').at(-1).slice(0,64)||
+         manifest.files.some((f,i)=>f.name!==spec.imageSplit.names[i]||
+            !back.artifactRefs.includes(f.ref)||!/^[a-f0-9]{64}$/.test(f.sha256||'')))
+        return failure('GO_IMAGE_MANIFEST_UNVERIFIED',{requestId:id,receiptId:x.receiptId});
+      return {ok:true,status:'GO_FACTORY_IMAGE_PACK_READY',domain:'VISUAL',
+        requestId:id,jobId:x.jobId,receiptId:x.receiptId,sourceSha:h.sourceSha,
+        inputSha256:manifest.sourceSha256,manifestRef:ref,
+        files:manifest.files,zipRef:manifest.zipRef,zipSha256:manifest.zipSha256,
+        zipBytes:manifest.archiveBytes,evidenceRefs:back.evidenceRefs,
+        executed:true,deliveredBytes:false};
+    }
     return {ok:true,status:'GO_FACTORY_DELIVERABLE_READY',requestId:id,
       jobId:x.jobId,receiptId:x.receiptId,domain,sourceSha:h.sourceSha,
       artifactRef:ref,evidenceRefs:back.evidenceRefs,
@@ -266,4 +293,90 @@ export async function factoryWorkshopContent(env,{content}={},approved=false) {
     if(!r.ok||x?.status!=='WORKSHOP_CONTENT_STORED'||!/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(x.ref||'')||x.ref.split('/').at(-1)!==x.sha256||x.sha256!==expected)return failure('GO_WORKSHOP_CONTENT_UNVERIFIED',{reason:x?.reason,httpStatus:r.httpStatus});
     return {ok:true,status:x.status,ref:x.ref,sha256:x.sha256,executed:false};
   } catch {return failure('GO_WORKSHOP_CONTENT_UNCERTAIN');}
+}
+
+
+/** Owner-approved GO -> Factory RGBA sprite-sheet upload.
+ * This is a data transport ONLY. It never invokes VISUAL machinery or
+ * declares an asset produced before a separate verified Factory job.
+ */
+export async function factoryVisualUploadStatus(env,{requestId}={}){
+ if(!UUID.test(requestId||''))return failure('GO_IMAGE_REQUEST_ID_INVALID');
+ if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId});
+ try{
+  const r=await jsonRequest(env,'POST','/station/go-asset-status',{requestId});
+  const x=r.data||{};
+  if(!r.ok||x.status!=='STORED_NOT_PROCESSED'||x.requestId!==requestId.toLowerCase()||
+     !/^[a-f0-9]{64}$/.test(x.sha256||'')||
+     x.ref!=='r2://factory/edge-source/go/'+x.sha256+'.png#sha256='+x.sha256||
+     x.executed!==false||!Number.isSafeInteger(x.bytes)||x.bytes<40||x.bytes>4*1024*1024)
+    return failure('GO_IMAGE_READBACK_UNVERIFIED',{requestId,httpStatus:r.httpStatus});
+  return {ok:true,status:'STORED_NOT_PROCESSED',requestId:x.requestId,ref:x.ref,
+    sha256:x.sha256,bytes:x.bytes,width:x.width,height:x.height,executed:false};
+ }catch{return failure('GO_IMAGE_STATUS_TRANSPORT_UNAVAILABLE',{requestId});}
+}
+export async function factoryVisualUpload(env,{requestId,pngBase64,sha256}={},approved=false){
+ if(approved!==true)return failure('OWNER_APPROVAL_REQUIRED');
+ const id=requestId===undefined?crypto.randomUUID():requestId;
+ if(!UUID.test(id||'')||!/^[a-f0-9]{64}$/.test(sha256||'')||
+    typeof pngBase64!=='string'||pngBase64.length<80||pngBase64.length>5_592_408||
+    pngBase64.length%4!==0||!/^[A-Za-z0-9+/]+={0,2}$/.test(pngBase64))
+   return failure('GO_IMAGE_INPUT_INVALID');
+ if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId:id});
+ try{
+  const binary=atob(pngBase64);
+  if(binary.length>4*1024*1024)return failure('GO_IMAGE_TOO_LARGE',{requestId:id});
+  const bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  if(await digest(bytes)!==sha256)return failure('GO_IMAGE_SHA_MISMATCH',{requestId:id});
+  const h=await factoryDirectStatus(env);
+  if(!h.ok||!h.commandReady)return failure('GO_FACTORY_AUTH_NOT_READY',{requestId:id});
+  const body={schema:'FACTORY_GO_PNG_INPUT_V1',requestId:id,sha256,pngBase64};
+  const r=await jsonRequest(env,'POST','/station/go-asset-upload',body),x=r.data||{};
+  if(!r.ok||x.status!=='STORED_NOT_PROCESSED'||x.requestId!==id.toLowerCase()||
+     x.sha256!==sha256||x.executed!==false)
+    return failure('GO_IMAGE_UPLOAD_UNVERIFIED',{requestId:id,httpStatus:r.httpStatus,reason:x.reason||x.status});
+  const back=await factoryVisualUploadStatus(env,{requestId:id});
+  if(!back.ok||back.sha256!==sha256||back.bytes!==bytes.length)
+    return failure('GO_IMAGE_READBACK_UNVERIFIED',{requestId:id,reason:back.status});
+  return back;
+ }catch{return failure('GO_IMAGE_UPLOAD_TRANSPORT_UNCERTAIN',{requestId:id});}
+}
+
+
+/** Read a single owner receipt-bound Factory ZIP chunk.
+ * The caller provides ZIP SHA-256 from previously verified manifest.
+ */
+export async function factoryVisualZipChunk(env,{receiptId,artifactRef,offset,expectedSha256,length=262144}={}){
+ if(!RECEIPT.test(receiptId||'')||typeof artifactRef!=='string'||
+    !/^r2:\/\/factory\/edge-results\/[A-Za-z0-9%_-]+\/[A-Za-z0-9%_-]+\/[A-Za-z0-9%_-]+\/visual-cutouts\.zip$/.test(artifactRef)||
+    !/^[a-f0-9]{64}$/.test(expectedSha256||'')||
+    !Number.isSafeInteger(offset)||offset<0||
+    !Number.isSafeInteger(length)||length<1||length>262144)
+   return failure('GO_ZIP_CHUNK_INPUT_INVALID');
+ const receipt=await factoryDirectReadback(env,{receiptId});
+ if(!receipt.ok||!receipt.verified||receipt.domain!=='VISUAL'||!receipt.artifactRefs.includes(artifactRef))
+   return failure('ZIP_NOT_IN_GO_RECEIPT');
+ try{
+  const r=await jsonRequest(env,'POST','/station/go-artifact-chunk',
+    {receiptId,artifactRef,offset,length});
+  const x=r.data||{};
+  if(!r.ok||x.status!=='ZIP_CHUNK_READ'||x.receiptId!==receiptId||
+     x.artifactRef!==artifactRef||x.offset!==offset||
+     x.fileSha256!==expectedSha256||x.readOnly!==true||x.executed!==false||
+     !Number.isSafeInteger(x.total)||x.total<=0||x.total>8*1024*1024||
+     !Number.isSafeInteger(x.length)||x.length<=0||x.length>length||
+     x.nextOffset!==offset+x.length||x.complete!==(x.nextOffset===x.total)||
+     !/^[a-f0-9]{64}$/.test(x.chunkSha256||'')||
+     typeof x.base64!=='string'||x.base64.length>350000)
+    return failure('GO_ZIP_CHUNK_READBACK_INVALID',{receiptId,httpStatus:r.httpStatus});
+  const binary=atob(x.base64),bytes=new Uint8Array(binary.length);
+  for(let i=0;i<bytes.length;i++)bytes[i]=binary.charCodeAt(i);
+  if(bytes.length!==x.length||await digest(bytes)!==x.chunkSha256)
+    return failure('GO_ZIP_CHUNK_DIGEST_MISMATCH',{receiptId});
+  return {ok:true,status:'ZIP_CHUNK_VERIFIED',receiptId,artifactRef,
+    offset:x.offset,length:x.length,total:x.total,nextOffset:x.nextOffset,
+    complete:x.complete,fileSha256:x.fileSha256,chunkSha256:x.chunkSha256,
+    base64:x.base64,executed:false,readOnly:true};
+ }catch{return failure('GO_ZIP_CHUNK_UNAVAILABLE',{receiptId});}
 }

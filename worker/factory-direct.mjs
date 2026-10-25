@@ -255,7 +255,7 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
          !Array.isArray(manifest.files)||manifest.files.length!==manifest.count||
          !/^[a-f0-9]{64}$/.test(manifest.zipSha256||'')||
          typeof manifest.zipRef!=='string'||!back.artifactRefs.includes(manifest.zipRef)||
-         manifest.sourceSha256!==spec.imageSplit.sourceRef.match(/edge-source\\/go\\/([a-f0-9]{64})\\.png/)?.[1]||
+         manifest.sourceSha256!==spec.imageSplit.sourceRef.split('/').at(-1).slice(0,64)||
          manifest.files.some((f,i)=>f.name!==spec.imageSplit.names[i]||
             !back.artifactRefs.includes(f.ref)||!/^[a-f0-9]{64}$/.test(f.sha256||'')))
         return failure('GO_IMAGE_MANIFEST_UNVERIFIED',{requestId:id,receiptId:x.receiptId});

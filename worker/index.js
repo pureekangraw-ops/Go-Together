@@ -1,3 +1,4 @@
+import {FACTORY_TEMP_TOOL,factoryVisualTemp} from './factory-temp.mjs';
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {GREENHOUSE_TOOLS,hubDeliveryReceipt} from './greenhouse-read.mjs';
@@ -152,6 +153,7 @@ export const tools=[
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
+FACTORY_TEMP_TOOL,
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
@@ -183,6 +185,7 @@ if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
 if(isObservatoryTool(name))return observatoryDirect(env,name,a);
+if(name==='factory_visual_temp')return factoryVisualTemp(env,a);
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_submit'){

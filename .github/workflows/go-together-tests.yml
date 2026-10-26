@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pureekangraw-ops/ygph-metropolis
-          ref: 2f81d39c344cb9fddfc2cfb3c4aa5900d4f59fdd
+          ref: e9d9086c50c74def6b96b631d9c87263cedf01db
           path: .goview-contract
       - uses: actions/setup-node@v4
         with:

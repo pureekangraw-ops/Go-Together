@@ -1,7 +1,7 @@
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 export function hubGroup(name){
  if(name.startsWith('brain_'))return 'brain';
- if(name.startsWith('factory_direct_')||name==='factory_workshop_content')return 'factory';
+ if(name.startsWith('factory_direct_')||name.startsWith('factory_visual_')||name==='factory_workshop_content')return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
  for(const p of ['github','cloudflare','notion','google','gitlab','slack'])if(name.startsWith(p+'_'))return p;
@@ -11,7 +11,10 @@ export async function hubTool(env,name,payload){
  if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');
  const definition=PROVIDER_TOOLS[hubGroup(name)]?.find(t=>t.name===name);
  if(definition?.annotations?.readOnlyHint===false&&(typeof payload?.requestId!=='string'||!payload.requestId.length||payload.requestId.length>120))throw Error('REQUEST_ID_REQUIRED');
- const retryIdentity=payload?.requestId||(name==='goview_publish'?payload?.transferId:null);
+ // Readback polls must observe changing source state, rather than deduplicate
+ // forever against the first read of a given job/request ID.
+ const polling=['factory_direct_job_status','factory_visual_upload_status'].includes(name);
+ const retryIdentity=polling?null:(payload?.requestId||(name==='goview_publish'?payload?.transferId:null));
  const messageId=retryIdentity?'go_'+BufferlessHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name+'\n'+retryIdentity))):crypto.randomUUID();
  // One attempt only. An ambiguous delivery is returned, never retried.
  const delivered=await env.HUB_V2.relay({connectorId:hubGroup(name),name,payload,messageId});

@@ -23,3 +23,10 @@ test('provider denial keeps receipt available to caller',async()=>{
  const r=await hubTool(env,'slack_post_message',{channel:'C1234567',text:'hello',requestId:'owner-1'});
  assert.equal(r.ok,false);assert.equal(r._hubReceipt.messageId,'denied');
 });
+test('Factory job and upload status reads get fresh Hub receipts on every poll',async()=>{
+ for(const name of ['factory_direct_job_status','factory_visual_upload_status']){
+  const ids=[];const env={HUB_V2:{relay:async({messageId})=>{ids.push(messageId);return {receipt:{state:'UNKNOWN',messageId}};}}};
+  await hubTool(env,name,{requestId:'job-id'});await hubTool(env,name,{requestId:'job-id'});
+  assert.notEqual(ids[0],ids[1]);
+ }
+});

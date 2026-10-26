@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,createHmac} from 'node:crypto';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 import {factoryVisualUpload,factoryVisualUploadStatus} from '../worker/factory-direct.mjs';
 const ORIGIN='https://go-together.pureekangraw.workers.dev';
 const key='factory-go-test-key-ABCDEFGHIJKLMNOPQRSTUVWXY0123456789';

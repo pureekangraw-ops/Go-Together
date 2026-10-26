@@ -14,10 +14,10 @@ No production deployment, merge to main, secret/permission changes, Slack work, 
 
 The first handoff stopped before accepted construction/testing scope was complete. CI success and private MCP reads did not establish the complete UI/build outcome. Do not close this checklist by reclassifying missing source as a release-only dependency.
 
-- [ ] Office: critical journey and screenshots from the exact packaged build at360/390/768/1440; draft/server/published truth, cancel/back/reload/conflict/lost-ack behavior.
-- [ ] Greenhouse: actual Pages and Node LIVE HTTP adapters, genuine owner signature verification, named private read capability, explicit STATION scope, LIVE/DEMO separation and actual browser evidence.
-- [ ] GO: source-safe Greenhouse error/malformed-response receipt retention and exact owner-authenticated hub_delivery_receipt lookup, no replay.
-- [ ] Hub: managed private exact receipt RPC, redacted existing serialization, no discovery/relay/write; actual named-runtime acceptance.
+- [x] Office: critical journey and screenshots from the exact packaged build at360/390/768/1440; draft/server/published truth, cancel/back/reload/conflict/lost-ack behavior.
+- [x] Greenhouse: actual Pages and Node LIVE HTTP adapters, genuine owner signature verification, named private read capability, explicit STATION scope, LIVE/DEMO separation and actual browser evidence.
+- [x] GO: source-safe Greenhouse error/malformed-response receipt retention and exact owner-authenticated hub_delivery_receipt lookup, no replay.
+- [x] Hub: managed private exact receipt RPC, redacted existing serialization, no discovery/relay/write; actual named-runtime acceptance.
 - [ ] Factory: remaining per-step budgets, actual owned-renderer cancellation/cleanup evidence, no unsupported hard-cancel claim; current default/queue/machinery build packet separate from old immutable archive.
 - [ ] Final assembly: independent reviews closed, final heads/CI and remotely readable current-source packets/dependency hashes matched.
 

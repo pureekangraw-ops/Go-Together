@@ -54,7 +54,13 @@ const sortCols=['updated_at','created_at','title','kind','status'];
 async function listing(db,args={}){restrict(args,['kind','status','q','sort','limit']);const clauses=[],params=[];
 let status=args.status||'active';if(status!=='all'){if(!STAT.includes(status))throw new Bad(400,'invalid_status');clauses.push('status=?');params.push(status);}
 if(args.kind){if(typeof args.kind!=='string')throw new Bad(400,'invalid_kind');clauses.push('kind=?');params.push(args.kind);}
-if(args.q){if(typeof args.q!=='string'||args.q.length>200)throw new Bad(400,'invalid_query');clauses.push('(title LIKE ? OR content LIKE ? OR work_id LIKE ? OR tags LIKE ? OR outcome LIKE ?)');params.push(...Array(5).fill('%'+args.q+'%'));}
+if(args.q){
+// The deployed D1 SQLite build rejects LIKE patterns >50 chars (including our two %).
+// Guard explicitly instead of surfacing an opaque SQLITE_ERROR after authorization.
+if(typeof args.q!=='string'||args.q.length>48)throw new Bad(400,'invalid_query_like_length');
+clauses.push('(title LIKE ? OR content LIKE ? OR work_id LIKE ? OR tags LIKE ? OR outcome LIKE ?)');
+params.push(...Array(5).fill('%'+args.q+'%'));
+}
 const col=sortCols.includes(args.sort)?args.sort:'updated_at',max=Math.min(200,Math.max(1,Number(args.limit)||100));
 const sql='SELECT * FROM memories'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY '+col+(col==='title'?' ASC':' DESC')+', id DESC LIMIT ?';
 const r=await db.prepare(sql).bind(...params,max).all();return (r.results||[]).map(memory);}

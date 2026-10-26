@@ -161,6 +161,12 @@ test('PROOF bridge returns receipt-bound report, not application acceptance', as
     if(path==='/station/readback/'+RID)return Response.json({...readback(),
       result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
       machineResult:{proofResult:report,reportRef:ref}});
+    if(path==='/station/go-artifact'){
+      const bytes=new TextEncoder().encode(JSON.stringify(report));
+      return new Response(bytes,{headers:{'content-type':'application/json',
+        'x-factory-artifact-sha256':await digest(bytes),
+        'x-factory-receipt-id':RID,'x-factory-source-sha':SHA}});
+    }
     return before(request);
   };
   const out=await factoryDirectSubmit(f.env,{domain:'PROOF',spec:{mode:'CATALOG',caseIds:[]},requestId:ID},true);
@@ -168,4 +174,7 @@ test('PROOF bridge returns receipt-bound report, not application acceptance', as
   assert.equal(out.verdict,'REFERENCE_ONLY');
   assert.equal(out.appAcceptanceVerified,false);
   assert.equal(out.reportRef,ref);
+  assert.equal(out.deliveredBytes,true);
+  assert.equal(out.artifact.mime,'application/json');
+  assert.deepEqual(JSON.parse(Buffer.from(out.artifact.base64,'base64').toString()),report);
 });

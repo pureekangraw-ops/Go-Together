@@ -3,7 +3,7 @@ export function hubGroup(name){
  if(name.startsWith('factory_direct_')||name==='factory_workshop_content')return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
- for(const p of ['github','cloudflare','notion','google'])if(name.startsWith(p+'_'))return p;
+ for(const p of ['github','cloudflare','notion','google','gitlab','slack'])if(name.startsWith(p+'_'))return p;
  return null;
 }
 export async function hubTool(env,name,payload){
@@ -25,7 +25,7 @@ export async function hubConnections(env){
  if(!env.HUB_V2)return {ok:false,status:'HUB_V2_NOT_CONFIGURED',source:'YGG_CONNECTION_HUB_V2'};
  const inventory=await env.HUB_V2.connections();
  const connections={};
- for(const p of ['github','cloudflare','notion','google']){
+ for(const p of ['github','cloudflare','notion','google','gitlab','slack']){
   try{connections[p]=await hubTool(env,p+'_status',{});}catch{connections[p]={status:'UNAVAILABLE',connected:false};}
  }
  return {ok:true,status:'CATALOG_LOADED',source:inventory.source,connectors:inventory.connections,toolCount:inventory.tools,connections};

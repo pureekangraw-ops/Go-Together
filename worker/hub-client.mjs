@@ -1,6 +1,7 @@
+import {validateFactoryTemp,factoryTempMutates} from './factory-temp.mjs';
 export function hubGroup(name){
  if(name.startsWith('brain_'))return 'brain';
- if(name.startsWith('factory_direct_')||name==='factory_workshop_content')return 'factory';
+ if(name.startsWith('factory_direct_')||name==='factory_visual_temp'||name==='factory_workshop_content')return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
  for(const p of ['github','cloudflare','notion','google'])if(name.startsWith(p+'_'))return p;
@@ -8,17 +9,35 @@ export function hubGroup(name){
 }
 export async function hubTool(env,name,payload){
  if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');
- const retryIdentity=payload?.requestId||(name==='goview_publish'?payload?.transferId:null);
+ if(name==='factory_visual_temp')validateFactoryTemp(payload);
+ // A status query must reach the destination again: reusing its requestId as
+ // the delivery identity returns the Hub's first cached (possibly UNKNOWN)
+ // response forever. Mutation request IDs remain stable; never replay them.
+ const retryIdentity=(name==='factory_direct_job_status'||name==='factory_visual_upload_status'||(name==='factory_visual_temp'&&!factoryTempMutates(payload.operation))?null:payload?.requestId)
+   ||(name==='goview_publish'?payload?.transferId:null);
  const messageId=retryIdentity?'go_'+BufferlessHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name+'\n'+retryIdentity))):crypto.randomUUID();
  // One attempt only. An ambiguous delivery is returned, never retried.
- const delivered=await env.HUB_V2.relay({connectorId:hubGroup(name),name,payload,messageId});
- if(!delivered.response)return {ok:false,status:delivered.receipt?.state||'DELIVERY_UNCERTAIN',_hubReceipt:delivered.receipt};
+ let delivered;
+ try{delivered=await env.HUB_V2.relay({connectorId:hubGroup(name),name,payload,messageId});}
+ catch(error){
+  if(name==='factory_visual_temp')return {ok:false,status:'DELIVERY_UNCERTAIN',receiptLookup:{connectorId:'factory',messageId}};
+  throw error;
+ }
+ if(name==='factory_visual_temp'&&(!delivered||typeof delivered!=='object'||Array.isArray(delivered)||!delivered.receipt||typeof delivered.receipt!=='object'||Array.isArray(delivered.receipt)))
+  return {ok:false,status:'DELIVERY_UNCERTAIN',receiptLookup:{connectorId:'factory',messageId}};
+ if(!delivered.response)return {ok:false,status:delivered.receipt?.state||'DELIVERY_UNCERTAIN',_hubReceipt:delivered.receipt,...(name==='factory_visual_temp'?{receiptLookup:{connectorId:'factory',messageId}}:{})};
+ try {
  let rpc;try{rpc=JSON.parse(delivered.response.body);}catch{throw Error('INVALID_HUB_RESPONSE');}
  if(rpc.error||rpc.result?.isError)throw Error(rpc.error?.message||rpc.result?.content?.[0]?.text||'UPSTREAM_TOOL_ERROR');
  const text=rpc.result?.content?.[0]?.text;if(typeof text!=='string')throw Error('INVALID_HUB_RESPONSE');
  const value=JSON.parse(text);
+ if(name==='factory_visual_temp'&&(!value||typeof value!=='object'||Array.isArray(value)))throw Error('INVALID_HUB_RESPONSE');
  if(value&&typeof value==='object'&&!Array.isArray(value))return {...value,_hubReceipt:delivered.receipt};
  return value;
+ } catch(error) {
+  if(name==='factory_visual_temp')return {ok:false,status:'UNKNOWN',_hubReceipt:delivered?.receipt,receiptLookup:{connectorId:'factory',messageId}};
+  throw error;
+ }
 }
 function BufferlessHex(value){return [...new Uint8Array(value)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function hubConnections(env){

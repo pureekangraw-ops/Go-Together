@@ -77,7 +77,7 @@ if(p==='/api/context'&&m==='GET'){
  const limit=rawLimit===null?10:Number(rawLimit);
  if(!['operational','evolution','all'].includes(mode))throw new Bad(400,'invalid_context_mode');
  if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
- return reply(buildBrainContext(await search(d,url.searchParams.get('q')||'',limit),{mode,limit}));
+ return reply(buildBrainContext(await search(d,url.searchParams.get('q')||'',Math.min(50,Math.max(20,limit*4))),{mode,limit}));
 }
 if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
 const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status))?$/.exec(p);
@@ -202,7 +202,7 @@ if(name==='brain_context'){
  const mode=a.mode??'operational',limit=a.limit??10;
  if(!['operational','evolution','all'].includes(mode))throw new Bad(400,'invalid_context_mode');
  if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
- return buildBrainContext(await search(d,a.query,limit),{mode,limit});
+ return buildBrainContext(await search(d,a.query,Math.min(50,Math.max(20,limit*4))),{mode,limit});
 }
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});

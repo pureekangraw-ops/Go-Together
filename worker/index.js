@@ -103,7 +103,9 @@ const GO_FACTORY_SPLIT=SCHEMA({imageSplit:SCHEMA({
  canvas:{type:'integer',minimum:64,maximum:1024},
  names:{type:'array',minItems:1,maxItems:12,items:{type:'string',pattern:'^[A-Za-z0-9_-]{1,64}$'}}
 },['sourceRef','count','columns','canvas','names'])},['imageSplit']);
-const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+const GO_FACTORY_PROOF_CATALOG=SCHEMA({mode:{type:'string',const:'CATALOG'},caseIds:{type:'array',maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^GOLDEN-[A-Z0-9-]{3,120}$'}}},['mode']);
+const GO_FACTORY_PROOF_CHECK=SCHEMA({mode:{type:'string',const:'RECEIPT_CHECK'},targetSourceSha:{type:'string',pattern:'^[a-f0-9]{40}$'},receiptIds:{type:'array',minItems:1,maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^receipt-[A-Za-z0-9-]{8,80}$'}}},['mode','targetSourceSha','receiptIds']);
+const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,SCHEMA({workshop:{type:"object"}},["workshop"])]};
 
 const OBS_ACTION=SCHEMA({type:{type:'string',enum:['navigate','back','forward','reload','scroll','click','type']},url:Q,selector:Q,value:Q,y:{type:'number'}},['type']);
 const OBS_TOOLS=[
@@ -137,8 +139,8 @@ export const tools=[
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
-{name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
-  domain:{type:'string',enum:['CODE','VISUAL','LOGIC']},spec:GO_FACTORY_SPEC,
+{name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose CODE, VISUAL, LOGIC or PROOF (historical Golden Case catalog or Factory-owned Receipt verification); provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
+  domain:{type:'string',enum:['CODE','VISUAL','LOGIC','PROOF']},spec:GO_FACTORY_SPEC,
   requestId:Q,approved:{type:'boolean',const:true}
 },['domain','spec','approved']),annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},
 {name:'factory_visual_upload',description:'Upload owner-approved PNG sheet through signed GO to Factory R2. Returns immutable sourceRef and independent status readback, not finished assets.',inputSchema:SCHEMA({

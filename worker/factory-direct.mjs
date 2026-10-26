@@ -116,7 +116,7 @@ export async function factoryDirectStatus(env={}){
     const x=await response.json();
     if(x?.service!=='factory-district'||x.stationId!=='FACTORY-STATION')
       return {...base,...failure('FACTORY_IDENTITY_MISMATCH')};
-    const machinery=Object.fromEntries(['CODE','VISUAL','LOGIC'].map(domain=>[
+    const machinery=Object.fromEntries(['CODE','VISUAL','LOGIC','PROOF'].map(domain=>[
       domain,x.machinery?.[domain]?.status==='READY'?'READY':'UNKNOWN']));
     const probe=await factoryDirectAuthProbe(env);
     const authenticated=probe.authenticated===true && probe.sourceSha===x.sourceSha;
@@ -128,7 +128,8 @@ export async function factoryDirectStatus(env={}){
         VISUAL:Array.isArray(x.machinery?.VISUAL?.intents)&&
           x.machinery.VISUAL.intents.includes('ALPHA_CUTOUT_V1')
           ?'STATIC_CARD_AND_ALPHA_CUTOUT_SOURCE_INSTALLED':'STATIC_CARD_PNG',
-        LOGIC:x.machinery?.LOGIC?.genericRunner?.status==='READY'?'BOUNDED_WORKSHOP_AND_DWARF':'DWARF_TRAINING_ONLY'},
+        LOGIC:x.machinery?.LOGIC?.genericRunner?.status==='READY'?'BOUNDED_WORKSHOP_AND_DWARF':'DWARF_TRAINING_ONLY',
+        PROOF:'FACTORY_RECEIPT_CHECK_AND_HISTORICAL_CATALOG'},
       workshopReady:x.machinery?.LOGIC?.genericRunner?.status==='READY',
       keyState:authenticated?'AUTHENTICATED':base.keyState,
       authStatus:probe.authenticated===true&&!authenticated
@@ -147,7 +148,8 @@ export async function factoryDirectReadback(env,{receiptId}={}){
       verified:x.domainVerified===true&&x.domainCompleted===true,
       jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
-      ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{})};
+      ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{}),
+      ...(x.machineResult?.proofResult?{proofResult:x.machineResult.proofResult,reportRef:x.machineResult.reportRef}:{})};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
 export async function factoryDirectJobStatus(env,{requestId}={}){
@@ -200,7 +202,7 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
 }
 export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approved=false){
   if(approved!==true)return failure('OWNER_APPROVAL_REQUIRED');
-  if(!['CODE','VISUAL','LOGIC'].includes(domain)||!object(spec))
+  if(!['CODE','VISUAL','LOGIC','PROOF'].includes(domain)||!object(spec))
     return failure('GO_JOB_SPEC_INVALID');
   const id=requestId===undefined?crypto.randomUUID():requestId;
   if(!UUID.test(id))return failure('GO_REQUEST_ID_INVALID');
@@ -231,6 +233,21 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
     if(!back.ok||!back.verified||back.jobId!==x.jobId||
       back.sourceSha!==h.sourceSha||back.domain!==domain)
       return failure('GO_RECEIPT_UNVERIFIED',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
+    if(domain==='PROOF') {
+      const report=back.proofResult,ref=back.reportRef;
+      if(report?.schema!=='FACTORY_PROOF_REPORT_V1'||
+         report.workId!==x.jobId||report.checkpointId!=='CP-'+x.jobId||
+         report.factorySourceSha!==h.sourceSha||report.mode!==spec.mode||
+         report.appAcceptanceVerified!==false||report.externalTestExecuted!==false||
+         !['PASS','UNVERIFIED','REFERENCE_ONLY'].includes(report.verdict)||
+         ref!=='r2://factory/records/proof/reports/'+x.jobId||
+         !back.artifactRefs.includes(ref))
+        return failure('GO_PROOF_REPORT_UNVERIFIED',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
+      return {ok:true,status:'PROOF_REPORT_READY',requestId:id,jobId:x.jobId,
+        receiptId:x.receiptId,sourceSha:h.sourceSha,verdict:report.verdict,
+        verificationScope:report.verificationScope,appAcceptanceVerified:false,
+        reportRef:ref,report,executed:true,deliveredBytes:false};
+    }
     if(workshop) {
       if(back.workshopResult?.operation!==spec.workshop.operation||back.workshopResult?.operationId!==spec.workshop.operationId||back.workshopResult?.subjectId!==spec.workshop.subjectId||back.workshopResult?.status!=='PASS') return failure('GO_WORKSHOP_RESULT_MISMATCH',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
       const result={ok:true,status:'LOGIC_WORKSHOP_COMPLETED',requestId:id,jobId:x.jobId,receiptId:x.receiptId,sourceSha:h.sourceSha,workshopResult:back.workshopResult,executed:true,deliveredBytes:false};

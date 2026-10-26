@@ -17,6 +17,7 @@ Both views use the exact same existing D1 memories and lexical-v2 `search`. No s
 - Every returned record has exact D1 `record_id`, `revision`, `memory_updated_at`, `lexical_score`, `status`, `confidence`, `external_evidence_pointer`, `work_id`, bounded `excerpt`, and relevant warning flags.
 - `external_evidence_pointer` is a **stored pointer**, not independently verified. `memory_updated_at` is not evidence that the underlying source changed or stayed current: `source_updated_at` remains null.
 - `mode` changes grouping/prioritization, NOT record authority, contents or lexical search relevance. It cannot claim complete project retrieval; baseline search scans the latest 2,000 non-deleted active/needs-review records and uses lexical matching.
+- To avoid the early-cutoff bug, the owner HTTP/MCP adapters now request up to 20–50 lexical candidates (based on output limit); only then does `buildBrainContext` prioritize the chosen view and return at most the requested 1–15 records. `candidates_considered` and `truncated_candidates` document that bound. No guarantee of complete recall beyond lexical-v2's source scan or top 50 results.
 
 ## Examples for GO
 

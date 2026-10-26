@@ -22,18 +22,19 @@ function canonicalContent(value){
   if(Array.isArray(value))return '['+value.map(canonicalContent).join(',')+']';
   return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonicalContent(value[key])).join(',')+'}';
 }
-async function signed(env,method,path,value){
+export async function signedFactoryRequest(env,method,path,value,signal){
   const body=value===undefined?'':JSON.stringify(value),timestamp=String(Date.now());
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.GO_FACTORY_RAIL_SECRET),
     {name:'HMAC',hash:'SHA-256'},false,['sign']);
   const sig=[...new Uint8Array(await crypto.subtle.sign('HMAC',key,
     new TextEncoder().encode(timestamp+'.'+body)))].map(x=>x.toString(16).padStart(2,'0')).join('');
-  return env.FACTORY_DIRECT.fetch(new Request(HOST+path,{method,headers:{
+  return env.FACTORY_DIRECT.fetch(new Request(HOST+path,{method,...(signal?{signal}:{}),headers:{
     'x-factory-client':'GO','x-metropolis-factory-protocol':PROTO,
     'x-metropolis-factory-timestamp':timestamp,'x-metropolis-factory-signature':sig,
     ...(value===undefined?{}:{'content-type':'application/json'})},
     ...(value===undefined?{}:{body})}));
 }
+const signed=signedFactoryRequest;
 async function jsonRequest(env,method,path,value){
   const r=await signed(env,method,path,value);
   let data;try{data=await r.json();}catch{return {ok:false,httpStatus:r.status,data:{status:'INVALID_FACTORY_RESPONSE'}};}
@@ -43,6 +44,26 @@ function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
   v.checkpointId==='CP-'+v.workId&&v.originSystem==='go-together'&&
   v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
   v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
+const safeJobReason=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,95}$/.test(value)?value:null;
+const QUEUE_EXECUTOR='FACTORY_VISUAL_QUEUE_V1';
+function queueMetadata(x,requestId){
+  if(x?.executor!==QUEUE_EXECUTOR||x.domain!=='VISUAL'||x.requestId!==requestId||
+    !JOB.test(x.jobId||'')||!/^[a-f0-9]{40}$/.test(x.sourceSha||'')||
+    !Number.isSafeInteger(x.admittedAt)||x.admittedAt<0||
+    !Number.isSafeInteger(x.deadlineAt)||x.deadlineAt-x.admittedAt!==300000)return null;
+  return {executor:QUEUE_EXECUTOR,sourceSha:x.sourceSha,admittedAt:x.admittedAt,deadlineAt:x.deadlineAt};
+}
+function receiptArtifacts(x){
+  const artifacts=x.result?.artifacts;
+  if(artifacts===undefined)return undefined; // Legacy receipts have no manifest.
+  if(!Array.isArray(artifacts)||artifacts.length>64)return null;
+  const refs=x.result?.artifactRefs;
+  if(!Array.isArray(refs)||artifacts.some(a=>!object(a)||!refs.includes(a.ref)||
+    !/^[a-f0-9]{64}$/.test(a.sha256||'')||!Number.isSafeInteger(a.bytes)||a.bytes<1||a.bytes>8*1024*1024||
+    ((a.width!==undefined||a.height!==undefined)&&(!Number.isSafeInteger(a.width)||a.width<1||a.width>4096||!Number.isSafeInteger(a.height)||a.height<1||a.height>4096))))return null;
+  return artifacts.map(a=>({ref:a.ref,sha256:a.sha256,bytes:a.bytes,
+    ...(a.width===undefined?{}:{width:a.width,height:a.height})}));
+}
 async function boundedProbeJson(response){
   if(!response.body)return null;
   const reader=response.body.getReader(),chunks=[];
@@ -143,10 +164,16 @@ export async function factoryDirectReadback(env,{receiptId}={}){
     const r=await jsonRequest(env,'GET','/station/readback/'+encodeURIComponent(receiptId));
     if(!r.ok||!validReceipt(r.data,receiptId))return failure('DIRECT_RECEIPT_UNVERIFIED',{httpStatus:r.httpStatus});
     const x=r.data;
+    const artifacts=receiptArtifacts(x);
+    if(artifacts===null)return failure('DIRECT_RECEIPT_UNVERIFIED',{httpStatus:r.httpStatus});
+    const verified=x.domainVerified===true&&x.domainCompleted===true;
     return {ok:true,status:'GO_RECEIPT_READ',readOnly:true,executed:false,
-      verified:x.domainVerified===true&&x.domainCompleted===true,
+      verified,jobStatus:verified?'COMPLETED':x.status==='FAILED'?'FAILED':'UNKNOWN',
+      reason:safeJobReason(x.reason),
       jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
+      ...(typeof x.observedAt==='string'&&Number.isFinite(Date.parse(x.observedAt))?{observedAt:x.observedAt}:{}),
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
+      ...(artifacts===undefined?{}:{artifacts}),
       ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{})};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
@@ -156,14 +183,38 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
   try{
     const r=await jsonRequest(env,'POST','/station/go-job-status',{requestId});
     if(!r.ok||r.data?.requestId!==requestId||!JOB.test(r.data.jobId||''))
-      return failure('GO_JOB_STATUS_UNKNOWN',{requestId,httpStatus:r.httpStatus});
+      return failure('GO_JOB_STATUS_UNKNOWN',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false,httpStatus:r.httpStatus});
+    if(r.data.executor!==undefined&&r.data.executor!==QUEUE_EXECUTOR)
+      return failure('GO_QUEUE_STATUS_UNVERIFIED',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+    if(r.data.executor===QUEUE_EXECUTOR){
+      const x=r.data,meta=queueMetadata(x,requestId);
+      const uncertain=()=>failure('GO_QUEUE_STATUS_UNVERIFIED',{requestId,jobId:x.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+      if(!meta)return uncertain();
+      if(['ACCEPTED','IN_PROGRESS','UNKNOWN'].includes(x.status))return {
+        ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:x.jobId,...meta,
+        receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,jobStatus:x.status,
+        verified:false,executed:false,readOnly:true,reason:safeJobReason(x.reason)};
+      // A raw Receipt can exist after the SLA expired. Only the coordinator's
+      // timely settlement plus independent correlated readback proves completion.
+      if(!['COMPLETED','FAILED'].includes(x.status)||!RECEIPT.test(x.receiptId||'')||
+        !Number.isSafeInteger(x.settledAt)||x.settledAt<meta.admittedAt||x.settledAt>meta.deadlineAt||
+        !Number.isSafeInteger(x.receiptObservedAt)||x.receiptObservedAt<meta.admittedAt||x.receiptObservedAt>x.settledAt)return uncertain();
+      const back=await factoryDirectReadback(env,{receiptId:x.receiptId});
+      if(!back.ok||back.jobId!==x.jobId||back.sourceSha!==meta.sourceSha||
+        Date.parse(back.observedAt||'')!==x.receiptObservedAt||
+        back.jobStatus!==x.status||(x.status==='COMPLETED'&&back.domain!=='VISUAL'))return uncertain();
+      return {...back,...meta,settledAt:x.settledAt,receiptObservedAt:x.receiptObservedAt,requestId,status:'GO_JOB_STATUS_READ'};
+    }
     const rid=r.data.receiptId;
-    if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId});
+    if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+    const pending={ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:r.data.jobId,receiptId:rid,
+      jobStatus:'UNKNOWN',verified:false,executed:false,readOnly:true,reason:safeJobReason(r.data.reason)};
+    if(r.data.status==='IN_PROGRESS')return {...pending,jobStatus:'IN_PROGRESS'};
     const receipt=await factoryDirectReadback(env,{receiptId:rid});
     if(!receipt.ok||receipt.jobId!==r.data.jobId)
-      return failure('GO_JOB_READBACK_UNVERIFIED',{requestId,jobId:r.data.jobId,receiptId:rid});
+      return {...pending,status:'GO_JOB_READBACK_UNVERIFIED',ok:false};
     return {...receipt,requestId,status:'GO_JOB_STATUS_READ'};
-  }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId});}
+  }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false});}
 }
 export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
   if(typeof artifactRef!=='string'||artifactRef.length>900||
@@ -178,9 +229,11 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
     const bytes=await response.arrayBuffer();
     if(bytes.byteLength>524288)return failure('ARTIFACT_EXCEEDS_MCP_LIMIT');
     const hash=await digest(bytes);
+    const manifest=receipt.artifacts?.find(a=>a.ref===artifactRef);
     if(response.headers.get('x-factory-artifact-sha256')!==hash||
       response.headers.get('x-factory-receipt-id')!==receiptId||
-      response.headers.get('x-factory-source-sha')!==receipt.sourceSha)
+      response.headers.get('x-factory-source-sha')!==receipt.sourceSha||
+      (manifest&&(manifest.sha256!==hash||manifest.bytes!==bytes.byteLength)))
       return failure('ARTIFACT_INTEGRITY_MISMATCH');
     const mime=response.headers.get('content-type');
     if(!['image/png','text/javascript; charset=utf-8','text/html; charset=utf-8','application/octet-stream','application/json'].includes(mime))
@@ -220,6 +273,16 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
     if(new TextEncoder().encode(JSON.stringify(input)).length>65536)
       return failure('GO_JOB_TOO_LARGE',{requestId:id});
     const r=await jsonRequest(env,'POST','/station/go-job',input),x=r.data||{};
+    const queued=queueMetadata(x,id);
+    if(r.ok&&x.status==='ACCEPTED'&&queued&&domain==='VISUAL'&&queued.sourceSha===h.sourceSha&&x.executed===false&&!x.receiptId)
+      return {ok:true,status:'VISUAL_JOB_ACCEPTED',requestId:id,jobId:x.jobId,...queued,
+        receiptId:null,jobStatus:'ACCEPTED',verified:false,executed:false};
+    // A duplicate queued admission can return a settled result. Never feed it
+    // into the legacy synchronous completion path: reconcile by read-only status.
+    if(x.executor!==undefined)return failure('GO_QUEUE_READBACK_REQUIRED',{
+      requestId:id,jobId:JOB.test(x.jobId||'')?x.jobId:null,
+      receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
+      jobStatus:'UNKNOWN',verified:false,httpStatus:r.httpStatus});
     if(!r.ok||x.status!=='COMPLETED'||x.requestId!==id||
       !JOB.test(x.jobId||'')||!RECEIPT.test(x.receiptId||''))
       return failure('GO_JOB_EFFECT_UNVERIFIED',{requestId:id,

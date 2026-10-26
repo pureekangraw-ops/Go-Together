@@ -6,13 +6,22 @@ on:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'static/**'
+      - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
+      - 'scripts/export-source-candidate.mjs'
+      - 'docs/connected-candidates-20261026.md'
+      - 'docs/plans/2026-10-26-connected-candidates.md'
   pull_request:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'static/**'
       - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
+      - 'scripts/export-source-candidate.mjs'
+      - 'docs/connected-candidates-20261026.md'
+      - 'docs/plans/2026-10-26-connected-candidates.md'
   workflow_dispatch:
 
 permissions:
@@ -23,8 +32,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout pinned Observatory typed contract
+        uses: actions/checkout@v4
+        with:
+          repository: pureekangraw-ops/ygph-metropolis
+          ref: d4a9bbc5a33e645270eb7b47d3c0bdf47d95c245
+          path: .goview-contract
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Verify owner-only Access and MCP compatibility
+        env:
+          GOVIEW_CONTRACT_ROOT: ${{ github.workspace }}/.goview-contract
         run: node --test --test-isolation=none tests/*.test.mjs
+
+  source-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned build tool without provider credentials
+        run: npm install --prefix "$RUNNER_TEMP/go-build-tools" --registry=https://registry.npmjs.org --no-audit --no-fund --save-exact wrangler@4.152.0
+      - name: Build only and export exact source candidate
+        env:
+          GO_BUILD_TOOLCHAIN: ${{ runner.temp }}/go-build-tools
+        run: |
+          node "$GO_BUILD_TOOLCHAIN/node_modules/wrangler/bin/wrangler.js" deploy --dry-run --outdir dist/raw
+          node scripts/export-source-candidate.mjs dist/raw dist/current-source-candidate
+          cd dist/current-source-candidate
+          sha256sum --check SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-source-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: dist/current-source-candidate/
+          if-no-files-found: error

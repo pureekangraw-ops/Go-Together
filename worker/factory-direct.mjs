@@ -189,7 +189,8 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
 }
 export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
   if(typeof artifactRef!=='string'||artifactRef.length>900||
-    !(artifactRef.startsWith('r2://factory/edge-results/')||/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(artifactRef)))
+    !(artifactRef.startsWith('r2://factory/edge-results/')||/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(artifactRef)||
+      /^r2:\/\/factory\/records\/proof\/reports\/GOJOB-[a-f0-9]{32}$/.test(artifactRef)))
     return failure('ARTIFACT_REF_INVALID');
   const receipt=await factoryDirectReadback(env,{receiptId});
   if(!receipt.ok||!receipt.verified||!receipt.artifactRefs.includes(artifactRef))
@@ -215,6 +216,21 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
       if(mime!=='application/json'||delivery.artifactRef!==artifactRef||delivery.sha256!==expected||delivery.receipt?.receiptId!==receiptId||delivery.readback?.receiptId!==receiptId
         ||delivery.readback?.workId!==receipt.jobId||delivery.readback?.domainVerified!==true||delivery.package?.workId!==receipt.jobId
         ||delivery.package?.checkpointId!=='CP-'+receipt.jobId||await digest(new TextEncoder().encode(canonicalContent(delivery.package)))!==expected) return failure('WORKSHOP_PACKAGE_INVALID');
+    }
+    if(artifactRef.startsWith('r2://factory/records/proof/reports/')) {
+      if(mime!=='application/json')return failure('PROOF_REPORT_MIME_INVALID');
+      let delivered;
+      try{delivered=JSON.parse(new TextDecoder().decode(bytes));}
+      catch{return failure('PROOF_REPORT_INVALID');}
+      if(delivered?.schema!=='FACTORY_PROOF_REPORT_V1'||
+         delivered.workId!==receipt.jobId||
+         delivered.checkpointId!=='CP-'+receipt.jobId||
+         delivered.factorySourceSha!==receipt.sourceSha||
+         delivered.appAcceptanceVerified!==false||
+         delivered.externalTestExecuted!==false||
+         !['PASS','UNVERIFIED','REFERENCE_ONLY'].includes(delivered.verdict)||
+         canonicalContent(delivered)!==canonicalContent(receipt.proofResult))
+        return failure('PROOF_REPORT_INTEGRITY_MISMATCH');
     }
     const u=new Uint8Array(bytes);let bin='';
     for(let i=0;i<u.length;i+=16384)bin+=String.fromCharCode(...u.slice(i,i+16384));
@@ -265,10 +281,12 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
          ref!=='r2://factory/records/proof/reports/'+x.jobId||
          !back.artifactRefs.includes(ref))
         return failure('GO_PROOF_REPORT_UNVERIFIED',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
+      const artifact=await factoryDirectArtifact(env,{receiptId:x.receiptId,artifactRef:ref});
+      if(!artifact.ok)return {...artifact,requestId:id,jobId:x.jobId,receiptId:x.receiptId};
       return {ok:true,status:'PROOF_REPORT_READY',requestId:id,jobId:x.jobId,
         receiptId:x.receiptId,sourceSha:h.sourceSha,verdict:report.verdict,
         verificationScope:report.verificationScope,appAcceptanceVerified:false,
-        reportRef:ref,report,executed:true,deliveredBytes:false};
+        reportRef:ref,report,artifact,executed:true,deliveredBytes:true};
     }
     if(workshop) {
       if(back.workshopResult?.operation!==spec.workshop.operation||back.workshopResult?.operationId!==spec.workshop.operationId||back.workshopResult?.subjectId!==spec.workshop.subjectId||back.workshopResult?.status!=='PASS') return failure('GO_WORKSHOP_RESULT_MISMATCH',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});

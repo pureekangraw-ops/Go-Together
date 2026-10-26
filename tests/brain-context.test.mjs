@@ -29,6 +29,22 @@ test('Operational pack places work first and preserves revision/source pointers'
  assert.equal(out.records[0].source_updated_at,null);
  assert.equal(out.source_assessment,'NOT_INDEPENDENTLY_VERIFIED');
 });
+test('Context mode chooses relevant record from a pool larger than requested output',()=>{
+ const out=buildBrainContext(hits,{mode:'operational',limit:1});
+ assert.equal(out.count,1);
+ assert.equal(out.records[0].record_id,WORK.id);
+ assert.equal(out.candidates_considered,2);
+ assert.equal(out.truncated_candidates,true);
+ const evolution=buildBrainContext(hits,{mode:'evolution',limit:1});
+ assert.equal(evolution.records[0].record_id,RCA.id);
+});
+test('Grouped context keeps lexical relevance order within the same section',()=>{
+ const second={...WORK,id:'33333333-3333-4333-8333-333333333333',title:'GO Brain work older'};
+ const result=buildBrainContext({query:'work',items:[
+  {score:0.2,memory:second},{score:0.9,memory:WORK},{score:1,memory:RCA}
+ ]},{mode:'operational',limit:2});
+ assert.deepEqual(result.records.map(x=>x.record_id),[WORK.id,second.id]);
+});
 test('Evolution pack prioritizes recorded RCA without fabricating conclusions',()=>{
  const before=JSON.stringify(hits);
  const out=buildBrainContext(hits,{mode:'evolution'});
@@ -67,6 +83,12 @@ test('Context HTTP endpoint is owner only and returns bounded evidence pack',asy
  assert.equal(out.type,'go_brain_source_context_v1');
  assert.equal(out.records[0].record_id,WORK.id);
  assert.equal(out.records.length,2);
+ const one=await worker.fetch(new Request(ROOT+'/api/context?q=GO%20Brain&limit=1'),env,authorized);
+ assert.equal(one.status,200);
+ const narrow=await one.json();
+ assert.equal(narrow.count,1);
+ assert.equal(narrow.records[0].record_id,WORK.id);
+ assert.equal(narrow.candidates_considered,2);
  assert.equal((await worker.fetch(new Request(ROOT+'/api/context?q=GO%20Brain&limit=20'),env,authorized)).status,400);
 });
 test('Brain MCP group exposes read-only context and does not write to D1',async()=>{

@@ -1,4 +1,5 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
+import {buildBrainContext} from './brain-context.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
@@ -70,6 +71,14 @@ async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));
+if(p==='/api/context'&&m==='GET'){
+ const mode=url.searchParams.get('mode')||'operational';
+ const rawLimit=url.searchParams.get('limit');
+ const limit=rawLimit===null?10:Number(rawLimit);
+ if(!['operational','evolution','all'].includes(mode))throw new Bad(400,'invalid_context_mode');
+ if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
+ return reply(buildBrainContext(await search(d,url.searchParams.get('q')||'',Math.min(50,Math.max(20,limit*4))),{mode,limit}));
+}
 if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
 const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status))?$/.exec(p);
 if(!hit)return error(404,'not_found');const key=hit[1],action=hit[2];
@@ -135,6 +144,7 @@ export const tools=[
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
+{name:'brain_context',description:'Read bounded source-linked GO Brain context for work continuity (operational) or RCA/learning review (evolution). Neither mode performs AI reasoning, tool execution, training, source verification or writes.',inputSchema:SCHEMA({query:Q,mode:{type:'string',enum:['operational','evolution','all']},limit:{type:'integer',minimum:1,maximum:15}},['query']),annotations:{readOnlyHint:true}},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
@@ -187,6 +197,13 @@ if(name==='brain_edit'){restrict(a,['id','expected_revision',...EDIT]);const {id
 if(name==='brain_set_status'){restrict(a,['id','status','expected_revision']);if(!Number.isInteger(a.expected_revision))throw new Bad(400,'expected_revision_required');return edit(d,a.id,{status:a.status},a.expected_revision);}
 if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)};}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
+if(name==='brain_context'){
+ restrict(a,['query','mode','limit']);
+ const mode=a.mode??'operational',limit=a.limit??10;
+ if(!['operational','evolution','all'].includes(mode))throw new Bad(400,'invalid_context_mode');
+ if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
+ return buildBrainContext(await search(d,a.query,Math.min(50,Math.max(20,limit*4))),{mode,limit});
+}
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});
 const MCP_INFO={name:'go-together',version:'1.3.0'};

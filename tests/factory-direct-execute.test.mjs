@@ -144,3 +144,28 @@ test('Direct GO MCP only exposes simple job commands, never requires Work Pass',
 });
 
 
+
+test('PROOF bridge returns receipt-bound report, not application acceptance', async () => {
+  const f=fixture(),before=f.env.FACTORY_DIRECT.fetch;
+  const ref='r2://factory/records/proof/reports/'+JOB;
+  const report={schema:'FACTORY_PROOF_REPORT_V1',workId:JOB,checkpointId:'CP-'+JOB,
+    factorySourceSha:SHA,mode:'CATALOG',verdict:'REFERENCE_ONLY',
+    appAcceptanceVerified:false,externalTestExecuted:false};
+  f.env.FACTORY_DIRECT.fetch=async request=>{
+    const path=new URL(request.url).pathname;
+    if(path==='/health'){
+      const r=await before(request),h=await r.json();
+      return Response.json({...h,machinery:{...h.machinery,PROOF:{status:'READY'}}});
+    }
+    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
+    if(path==='/station/readback/'+RID)return Response.json({...readback(),
+      result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
+      machineResult:{proofResult:report,reportRef:ref}});
+    return before(request);
+  };
+  const out=await factoryDirectSubmit(f.env,{domain:'PROOF',spec:{mode:'CATALOG',caseIds:[]},requestId:ID},true);
+  assert.equal(out.status,'PROOF_REPORT_READY',JSON.stringify(out));
+  assert.equal(out.verdict,'REFERENCE_ONLY');
+  assert.equal(out.appAcceptanceVerified,false);
+  assert.equal(out.reportRef,ref);
+});

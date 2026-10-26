@@ -8,7 +8,11 @@ export function hubGroup(name){
 }
 export async function hubTool(env,name,payload){
  if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');
- const retryIdentity=payload?.requestId||(name==='goview_publish'?payload?.transferId:null);
+ // A status query must reach the destination again: reusing its requestId as
+ // the delivery identity returns the Hub's first cached (possibly UNKNOWN)
+ // response forever. Mutation request IDs remain stable; never replay them.
+ const retryIdentity=(name==='factory_direct_job_status'?null:payload?.requestId)
+   ||(name==='goview_publish'?payload?.transferId:null);
  const messageId=retryIdentity?'go_'+BufferlessHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name+'\n'+retryIdentity))):crypto.randomUUID();
  // One attempt only. An ambiguous delivery is returned, never retried.
  const delivered=await env.HUB_V2.relay({connectorId:hubGroup(name),name,payload,messageId});

@@ -1,6 +1,6 @@
 const shape=(p={},r=[])=>({type:'object',properties:p,required:r,additionalProperties:false});
 const str=(max=300)=>({type:'string',minLength:1,maxLength:max});
-const writable=(name,description,p,r)=>({name,description,inputSchema:shape(p,r),annotations:{readOnlyHint:false,destructiveHint:false}});
+const writable=(name,description,p,r)=>({name,description:description+' Reuse requestId to inspect an uncertain delivery; use a new ID only for a new intended operation.',inputSchema:shape({...p,requestId:str(120)},[...r,'requestId']),annotations:{readOnlyHint:false,destructiveHint:false}});
 export const PROVIDER_WRITES={
  github:[
   writable('github_branch','Create a work branch from a pinned commit; does not modify main.',{repo:str(),branch:str(120),from_sha:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['repo','branch','from_sha']),

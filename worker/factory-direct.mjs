@@ -22,18 +22,19 @@ function canonicalContent(value){
   if(Array.isArray(value))return '['+value.map(canonicalContent).join(',')+']';
   return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonicalContent(value[key])).join(',')+'}';
 }
-async function signed(env,method,path,value){
+export async function signedFactoryRequest(env,method,path,value,signal){
   const body=value===undefined?'':JSON.stringify(value),timestamp=String(Date.now());
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.GO_FACTORY_RAIL_SECRET),
     {name:'HMAC',hash:'SHA-256'},false,['sign']);
   const sig=[...new Uint8Array(await crypto.subtle.sign('HMAC',key,
     new TextEncoder().encode(timestamp+'.'+body)))].map(x=>x.toString(16).padStart(2,'0')).join('');
-  return env.FACTORY_DIRECT.fetch(new Request(HOST+path,{method,headers:{
+  return env.FACTORY_DIRECT.fetch(new Request(HOST+path,{method,...(signal?{signal}:{}),headers:{
     'x-factory-client':'GO','x-metropolis-factory-protocol':PROTO,
     'x-metropolis-factory-timestamp':timestamp,'x-metropolis-factory-signature':sig,
     ...(value===undefined?{}:{'content-type':'application/json'})},
     ...(value===undefined?{}:{body})}));
 }
+const signed=signedFactoryRequest;
 async function jsonRequest(env,method,path,value){
   const r=await signed(env,method,path,value);
   let data;try{data=await r.json();}catch{return {ok:false,httpStatus:r.status,data:{status:'INVALID_FACTORY_RESPONSE'}};}

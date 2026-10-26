@@ -1,5 +1,7 @@
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
+import {validateGreenhouseRead} from './greenhouse-read.mjs';
 export function hubGroup(name){
+ if(['greenhouse_delivery_list','greenhouse_delivery_get','greenhouse_result_get'].includes(name))return 'greenhouse';
  if(name.startsWith('brain_'))return 'brain';
  if(name.startsWith('factory_direct_')||name.startsWith('factory_visual_')||name==='factory_workshop_content')return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
@@ -9,6 +11,7 @@ export function hubGroup(name){
 }
 export async function hubTool(env,name,payload){
  if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');
+ if(hubGroup(name)==='greenhouse')validateGreenhouseRead(name,payload);
  const definition=PROVIDER_TOOLS[hubGroup(name)]?.find(t=>t.name===name);
  if(definition?.annotations?.readOnlyHint===false&&(typeof payload?.requestId!=='string'||!payload.requestId.length||payload.requestId.length>120))throw Error('REQUEST_ID_REQUIRED');
  // Readback polls must observe changing source state, rather than deduplicate

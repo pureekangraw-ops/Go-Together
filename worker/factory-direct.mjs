@@ -43,6 +43,18 @@ function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
   v.checkpointId==='CP-'+v.workId&&v.originSystem==='go-together'&&
   v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
   v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
+const safeJobReason=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,95}$/.test(value)?value:null;
+function receiptArtifacts(x){
+  const artifacts=x.result?.artifacts;
+  if(artifacts===undefined)return undefined; // Legacy receipts have no manifest.
+  if(!Array.isArray(artifacts)||artifacts.length>64)return null;
+  const refs=x.result?.artifactRefs;
+  if(!Array.isArray(refs)||artifacts.some(a=>!object(a)||!refs.includes(a.ref)||
+    !/^[a-f0-9]{64}$/.test(a.sha256||'')||!Number.isSafeInteger(a.bytes)||a.bytes<1||a.bytes>8*1024*1024||
+    ((a.width!==undefined||a.height!==undefined)&&(!Number.isSafeInteger(a.width)||a.width<1||a.width>4096||!Number.isSafeInteger(a.height)||a.height<1||a.height>4096))))return null;
+  return artifacts.map(a=>({ref:a.ref,sha256:a.sha256,bytes:a.bytes,
+    ...(a.width===undefined?{}:{width:a.width,height:a.height})}));
+}
 async function boundedProbeJson(response){
   if(!response.body)return null;
   const reader=response.body.getReader(),chunks=[];
@@ -143,10 +155,15 @@ export async function factoryDirectReadback(env,{receiptId}={}){
     const r=await jsonRequest(env,'GET','/station/readback/'+encodeURIComponent(receiptId));
     if(!r.ok||!validReceipt(r.data,receiptId))return failure('DIRECT_RECEIPT_UNVERIFIED',{httpStatus:r.httpStatus});
     const x=r.data;
+    const artifacts=receiptArtifacts(x);
+    if(artifacts===null)return failure('DIRECT_RECEIPT_UNVERIFIED',{httpStatus:r.httpStatus});
+    const verified=x.domainVerified===true&&x.domainCompleted===true;
     return {ok:true,status:'GO_RECEIPT_READ',readOnly:true,executed:false,
-      verified:x.domainVerified===true&&x.domainCompleted===true,
+      verified,jobStatus:verified?'COMPLETED':x.status==='FAILED'?'FAILED':'UNKNOWN',
+      reason:safeJobReason(x.reason),
       jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
+      ...(artifacts===undefined?{}:{artifacts}),
       ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{})};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
@@ -156,14 +173,17 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
   try{
     const r=await jsonRequest(env,'POST','/station/go-job-status',{requestId});
     if(!r.ok||r.data?.requestId!==requestId||!JOB.test(r.data.jobId||''))
-      return failure('GO_JOB_STATUS_UNKNOWN',{requestId,httpStatus:r.httpStatus});
+      return failure('GO_JOB_STATUS_UNKNOWN',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false,httpStatus:r.httpStatus});
     const rid=r.data.receiptId;
-    if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId});
+    if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+    const pending={ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:r.data.jobId,receiptId:rid,
+      jobStatus:'UNKNOWN',verified:false,executed:false,readOnly:true,reason:safeJobReason(r.data.reason)};
+    if(r.data.status==='IN_PROGRESS')return {...pending,jobStatus:'IN_PROGRESS'};
     const receipt=await factoryDirectReadback(env,{receiptId:rid});
     if(!receipt.ok||receipt.jobId!==r.data.jobId)
-      return failure('GO_JOB_READBACK_UNVERIFIED',{requestId,jobId:r.data.jobId,receiptId:rid});
+      return {...pending,status:'GO_JOB_READBACK_UNVERIFIED',ok:false};
     return {...receipt,requestId,status:'GO_JOB_STATUS_READ'};
-  }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId});}
+  }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false});}
 }
 export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
   if(typeof artifactRef!=='string'||artifactRef.length>900||
@@ -178,9 +198,11 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
     const bytes=await response.arrayBuffer();
     if(bytes.byteLength>524288)return failure('ARTIFACT_EXCEEDS_MCP_LIMIT');
     const hash=await digest(bytes);
+    const manifest=receipt.artifacts?.find(a=>a.ref===artifactRef);
     if(response.headers.get('x-factory-artifact-sha256')!==hash||
       response.headers.get('x-factory-receipt-id')!==receiptId||
-      response.headers.get('x-factory-source-sha')!==receipt.sourceSha)
+      response.headers.get('x-factory-source-sha')!==receipt.sourceSha||
+      (manifest&&(manifest.sha256!==hash||manifest.bytes!==bytes.byteLength)))
       return failure('ARTIFACT_INTEGRITY_MISMATCH');
     const mime=response.headers.get('content-type');
     if(!['image/png','text/javascript; charset=utf-8','text/html; charset=utf-8','application/octet-stream','application/json'].includes(mime))

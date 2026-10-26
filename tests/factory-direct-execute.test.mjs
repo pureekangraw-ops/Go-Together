@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from './hub-fixture.mjs';
-import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus}
+import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus,factoryJobStampStatus}
   from '../worker/factory-direct.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev';
@@ -177,4 +177,40 @@ test('PROOF bridge returns receipt-bound report, not application acceptance', as
   assert.equal(out.deliveredBytes,true);
   assert.equal(out.artifact.mime,'application/json');
   assert.deepEqual(JSON.parse(Buffer.from(out.artifact.base64,'base64').toString()),report);
+});
+
+test('GO reads existing Job Stamp by signed receipt, no new machine command or key issuance',async()=>{
+ const f=fixture(),original=f.env.FACTORY_DIRECT.fetch;
+ const stampRef='r2://factory/records/factory/job-stamp/v1/'+RID;
+ const stamp={schema:'FACTORY_JOB_STAMP_V1',receiptId:RID,jobId:JOB,checkpointId:'CP-'+JOB,
+   sourceSha:SHA,ownerDomain:'CODE',status:'PASS',
+   appAcceptanceVerified:false,dispatchState:'AVAILABLE_NOT_DELIVERED',
+   files:[{ref:ART,status:'VERIFIED',bytes:bytes.length,sha256:await digest(bytes)}]};
+ f.env.FACTORY_DIRECT.fetch=async req=>{
+   if(new URL(req.url).pathname==='/station/go-job-stamp-status'){
+     assert.deepEqual(await req.json(),{receiptId:RID});
+     return Response.json({status:'PASS',receiptId:RID,stamp,stampRef,readOnly:true});
+   }
+   return original(req);
+ };
+ const result=await factoryJobStampStatus(f.env,{receiptId:RID});
+ assert.equal(result.ok,true,JSON.stringify(result));
+ assert.equal(result.deliveryAuthorized,true);
+ assert.equal(result.stampRef,stampRef);
+ const viaMcp=await mcp(f.env,'factory_job_stamp_status',{receiptId:RID});
+ assert.equal(viaMcp.data.ok,true,JSON.stringify(viaMcp.data));
+ assert.equal(viaMcp.data.stamp.appAcceptanceVerified,false);
+});
+test('GO advertises existing PROOF managed environment TOOLKIT schema',async()=>{
+ const f=fixture();
+ const res=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({
+   jsonrpc:'2.0',id:5,method:'tools/list'})}),f.env,ctx);
+ const catalog=(await res.json()).result.tools;
+ assert.ok(catalog.some(x=>x.name==='factory_job_stamp_status'));
+ const spec=catalog.find(x=>x.name==='factory_direct_submit').inputSchema.properties.spec;
+ const parts=spec.oneOf||[];
+ assert.ok(parts.some(x=>x.properties?.mode?.const==='TOOLKIT'&&
+   x.properties.action.enum.includes('OPEN_ENV')&&
+   x.properties.action.enum.includes('RUN_CASE')&&
+   x.properties.action.enum.includes('CLOSE_ENV')));
 });

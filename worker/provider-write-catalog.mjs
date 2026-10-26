@@ -21,12 +21,15 @@ export const PROVIDER_WRITES={
  gitlab:[
   {name:'gitlab_status',description:'Verify GitLab provider identity.',inputSchema:shape(),annotations:{readOnlyHint:true,destructiveHint:false}},
   {name:'gitlab_project',description:'Read GitLab project metadata.',inputSchema:shape({project:str(300)},['project']),annotations:{readOnlyHint:true,destructiveHint:false}},
+  {name:'gitlab_file',description:'Read a GitLab file and last commit ID before editing it.',inputSchema:shape({project:str(300),path:str(300),ref:str(120)},['project','path','ref']),annotations:{readOnlyHint:true,destructiveHint:false}},
   writable('gitlab_branch','Create a GitLab work branch.',{project:str(300),branch:str(120),ref:str(120)},['project','branch','ref']),
-  writable('gitlab_put_file','Create or update a text file on a GitLab work branch.',{project:str(300),branch:str(120),path:str(300),content:str(65536),message:str(300),update:{type:'boolean'}},['project','branch','path','content','message','update']),
+  writable('gitlab_put_file','Create or update a text file on a GitLab work branch. Updates require last_commit_id from file readback.',{project:str(300),branch:str(120),path:str(300),content:str(65536),message:str(300),update:{type:'boolean'},last_commit_id:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['project','branch','path','content','message','update']),
   writable('gitlab_open_mr','Open merge request; does not merge.',{project:str(300),source_branch:str(120),target_branch:str(120),title:str(200)},['project','source_branch','target_branch','title'])
  ],
  slack:[
   {name:'slack_status',description:'Verify Slack API identity.',inputSchema:shape(),annotations:{readOnlyHint:true,destructiveHint:false}},
+  {name:'slack_history',description:'Read a bounded page of messages for one explicit channel.',inputSchema:shape({channel:str(100),limit:{type:'integer',minimum:1,maximum:100},cursor:str(1000)},['channel']),annotations:{readOnlyHint:true,destructiveHint:false}},
+  writable('slack_update_message','Edit an existing message owned by the connected Slack identity.',{channel:str(100),ts:{type:'string',pattern:'^[0-9]+[.][0-9]+$'},text:str(3500)},['channel','ts','text']),
   writable('slack_post_message','Post a message to one explicit channel.',{channel:str(100),text:str(3500)},['channel','text'])
  ]
 };

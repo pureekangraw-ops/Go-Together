@@ -2,7 +2,7 @@ import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
-import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryJobStampStatus, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -105,7 +105,14 @@ const GO_FACTORY_SPLIT=SCHEMA({imageSplit:SCHEMA({
 },['sourceRef','count','columns','canvas','names'])},['imageSplit']);
 const GO_FACTORY_PROOF_CATALOG=SCHEMA({mode:{type:'string',const:'CATALOG'},caseIds:{type:'array',maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^GOLDEN-[A-Z0-9-]{3,120}$'}}},['mode']);
 const GO_FACTORY_PROOF_CHECK=SCHEMA({mode:{type:'string',const:'RECEIPT_CHECK'},targetSourceSha:{type:'string',pattern:'^[a-f0-9]{40}$'},receiptIds:{type:'array',minItems:1,maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^receipt-[A-Za-z0-9-]{8,80}$'}}},['mode','targetSourceSha','receiptIds']);
-const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+const GO_FACTORY_PROOF_TOOLKIT=SCHEMA({
+  mode:{type:'string',const:'TOOLKIT'},
+  action:{type:'string',enum:['PLAYBOOKS','LIST_CASES','GET_CASE','REGISTER_CASE',
+    'AUDIT_RECEIPT','OPEN_ENV','ENV_STATUS','CLOSE_ENV','RUN_CASE','READ_RUN',
+    'COMPARE','RCA','REPORT']},
+  payload:{type:'object',maxProperties:12}
+},['mode','action','payload']);
+const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,GO_FACTORY_PROOF_TOOLKIT,SCHEMA({workshop:{type:"object"}},["workshop"])]};
 
 const OBS_ACTION=SCHEMA({type:{type:'string',enum:['navigate','back','forward','reload','scroll','click','type']},url:Q,selector:Q,value:Q,y:{type:'number'}},['type']);
 const OBS_TOOLS=[
@@ -137,6 +144,7 @@ export const tools=[
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
+{name:'factory_job_stamp_status',description:'Read only one GO-owned Job Stamp central evaluation and delivery eligibility by signed Factory receipt. Never executes a machine or claims recipient acceptance.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose CODE, VISUAL, LOGIC or PROOF (historical Golden Case catalog or Factory-owned Receipt verification); provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
@@ -167,6 +175,7 @@ if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
 if(isObservatoryTool(name))return observatoryDirect(env,name,a);
+if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJobStampStatus(env,a);}
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_submit'){

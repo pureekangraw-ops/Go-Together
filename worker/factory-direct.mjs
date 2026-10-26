@@ -176,7 +176,9 @@ export async function factoryDirectReadback(env,{receiptId}={}){
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
       ...(artifacts===undefined?{}:{artifacts}),
       ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{}),
-      ...(x.machineResult?.proofResult?{proofResult:x.machineResult.proofResult,reportRef:x.machineResult.reportRef}:{})};
+      ...(x.machineResult?.proofResult?{proofResult:x.machineResult.proofResult,reportRef:x.machineResult.reportRef}:{}),
+      ...(x.jobStamp?{jobStamp:x.jobStamp}:{}),
+      deliveryAuthorized:x.jobStamp?.status==='PASS'};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
 export async function factoryDirectJobStatus(env,{requestId}={}){
@@ -218,6 +220,23 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
     return {...receipt,requestId,status:'GO_JOB_STATUS_READ'};
   }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false});}
 }
+// Read one existing stamped GO receipt. It cannot trigger a job or deliver bytes.
+export async function factoryJobStampStatus(env,{receiptId}={}){
+  if(!RECEIPT.test(receiptId||''))return failure('RECEIPT_ID_INVALID');
+  if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED');
+  try{
+    const r=await jsonRequest(env,'POST','/station/go-job-stamp-status',{receiptId});
+    const x=r.data||{};
+    if(!r.ok||x.status!=='PASS'||x.stamp?.receiptId!==receiptId||
+       x.stamp.status!=='PASS'||x.stamp.dispatchState!=='AVAILABLE_NOT_DELIVERED'||
+       x.stamp.appAcceptanceVerified!==false||
+       x.stampRef!=='r2://factory/records/factory/job-stamp/v1/'+receiptId||
+       !Array.isArray(x.stamp.files)||x.stamp.files.length<1)
+      return {ok:false,status:'JOB_STAMP_NOT_VERIFIED',receiptId,readOnly:true,httpStatus:r.httpStatus};
+    return {ok:true,status:'JOB_STAMP_READ',receiptId,stamp:x.stamp,
+      stampRef:x.stampRef,deliveryAuthorized:true,readOnly:true,executed:false};
+  }catch{return failure('JOB_STAMP_UNAVAILABLE',{receiptId,readOnly:true});}
+}
 export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
   if(typeof artifactRef!=='string'||artifactRef.length>900||
     !(artifactRef.startsWith('r2://factory/edge-results/')||/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(artifactRef)||
@@ -258,7 +277,9 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
          delivered.checkpointId!=='CP-'+receipt.jobId||
          delivered.factorySourceSha!==receipt.sourceSha||
          delivered.appAcceptanceVerified!==false||
-         delivered.externalTestExecuted!==false||
+         (delivered.externalTestExecuted===true&&
+           (delivered.mode!=='TOOLKIT'||delivered.toolkitAction!=='RUN_CASE'||
+            delivered.toolkitResult?.executed!==true))||
          !['PASS','UNVERIFIED','REFERENCE_ONLY'].includes(delivered.verdict)||
          canonicalContent(delivered)!==canonicalContent(receipt.proofResult))
         return failure('PROOF_REPORT_INTEGRITY_MISMATCH');
@@ -317,7 +338,9 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       if(report?.schema!=='FACTORY_PROOF_REPORT_V1'||
          report.workId!==x.jobId||report.checkpointId!=='CP-'+x.jobId||
          report.factorySourceSha!==h.sourceSha||report.mode!==spec.mode||
-         report.appAcceptanceVerified!==false||report.externalTestExecuted!==false||
+         report.appAcceptanceVerified!==false||
+         report.externalTestExecuted!==(spec.mode==='TOOLKIT'&&
+           spec.action==='RUN_CASE'&&report.toolkitResult?.executed===true)||
          !['PASS','UNVERIFIED','REFERENCE_ONLY'].includes(report.verdict)||
          ref!=='r2://factory/records/proof/reports/'+x.jobId||
          !back.artifactRefs.includes(ref))

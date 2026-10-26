@@ -25,7 +25,10 @@ function structuredNextAction(item){
 export function buildBrainContext(searchResult,{mode='operational',limit=10}={}){
  if(!MODES.has(mode))throw new RangeError('invalid_context_mode');
  if(!Number.isInteger(limit)||limit<1||limit>15)throw new RangeError('invalid_context_limit');
- const hits=Array.isArray(searchResult?.items)?searchResult.items.slice(0,limit):[];
+ // Read the bounded candidate pool before applying the view priority. A caller
+ // asking for 3 Operational items should not silently lose an Operational hit
+ // ranked fourth by lexical score behind Evolution notes.
+ const hits=Array.isArray(searchResult?.items)?searchResult.items.slice(0,50):[];
  const entries=hits.map(hit=>{
   const m=hit.memory||{},body=String(m.content||'');
   const evidence=typeof m.evidence_url==='string'&&m.evidence_url.trim()?m.evidence_url.trim():null;
@@ -54,12 +57,18 @@ export function buildBrainContext(searchResult,{mode='operational',limit=10}={})
  });
  const preference=mode==='evolution'?['evolution','operational','reference']:
    mode==='operational'?['operational','evolution','reference']:null;
- const ordered=preference?entries.sort((a,b)=>preference.indexOf(a.section)-preference.indexOf(b.section)):entries;
+ const ordered=(preference?entries.sort((a,b)=>
+   preference.indexOf(a.section)-preference.indexOf(b.section) ||
+   (b.lexical_score??0)-(a.lexical_score??0) ||
+   String(b.memory_updated_at||'').localeCompare(String(a.memory_updated_at||''))
+ ):entries).slice(0,limit);
  return {
   type:'go_brain_source_context_v1',query:searchResult?.query||'',
   mode,method:searchResult?.method||'unknown',
   records:ordered,
   count:ordered.length,
+  candidates_considered:entries.length,
+  truncated_candidates:entries.length>ordered.length,
   source_assessment:'NOT_INDEPENDENTLY_VERIFIED',
   notice:'GO Brain supplies ranked memory excerpts and version pointers only. GO checks exact sources, performs reasoning, chooses tools, and confirms real outcomes. Memory updated_at is not source freshness; lexical score is not factual confidence. No training, task execution, or memory mutation.'
  };

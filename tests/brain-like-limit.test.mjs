@@ -6,7 +6,7 @@ const ROOT='https://go-together.pureekangraw.workers.dev';
 let queries=0;
 const env={
  ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',
- DB:{prepare:()=>({all:async()=>{queries++;return {results:[]};},first:async()=>({healthy:1})})},
+ DB:{prepare:()=>({bind(..._args){return this;},all:async()=>{queries++;return {results:[]};},first:async()=>({healthy:1})})},
  ASSETS:{fetch:async()=>new Response('unused')}
 };
 const owner={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};

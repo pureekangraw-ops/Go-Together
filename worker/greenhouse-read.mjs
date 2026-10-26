@@ -14,3 +14,12 @@ export function validateGreenhouseRead(name,args){
     (list?args.limit!==undefined&&(!Number.isInteger(args.limit)||args.limit<1||args.limit>30):
       typeof args.attemptId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(args.attemptId)))throw Error('INVALID_GREENHOUSE_ARGUMENTS');
 }
+export async function hubDeliveryReceipt(env,args){
+ if(!args||typeof args!=='object'||Array.isArray(args)||
+    Object.keys(args).some(k=>!['connectorId','messageId'].includes(k))||
+    typeof args.connectorId!=='string'||typeof args.messageId!=='string'||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(args.connectorId)||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(args.messageId))throw Error('INVALID_RECEIPT_QUERY');
+ if(typeof env.HUB_V2?.receipt!=='function')throw Error('HUB_RECEIPT_NOT_CONFIGURED');
+ return env.HUB_V2.receipt(args);
+}

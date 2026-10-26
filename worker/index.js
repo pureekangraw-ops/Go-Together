@@ -1,6 +1,6 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
-import {GREENHOUSE_TOOLS} from './greenhouse-read.mjs';
+import {GREENHOUSE_TOOLS,hubDeliveryReceipt} from './greenhouse-read.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
@@ -132,6 +132,7 @@ const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
 export const tools=[
  ...Object.values(PROVIDER_TOOLS).flat(),
  ...GREENHOUSE_TOOLS,
+ {name:'hub_delivery_receipt',description:'Read one exact managed-connector Hub transport receipt without replay. UNKNOWN remains unknown and RESPONDED does not prove Work success.',inputSchema:SCHEMA({connectorId:{type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'},messageId:{type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'}},['connectorId','messageId']),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
  {name:'hub_connections',description:'Read Hub V2 catalog and current provider connectivity through the Hub. No PANTHEON dependency.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
  {name:'goview_transfer_read',description:'Read only the explicitly selected typed transfer ID and expected payload SHA-256 from the owner upload receipt. Verify contract and exact bytes; no listing or GPS/history discovery.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID,sha256:GOVIEW_TRANSFER_SHA},['transferId','sha256']),annotations:{readOnlyHint:true}},
@@ -177,6 +178,7 @@ export const tools=[
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(!local&&hubGroup(name))return hubTool(env,name,a);
+if(name==='hub_delivery_receipt')return hubDeliveryReceipt(env,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);

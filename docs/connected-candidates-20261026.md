@@ -21,3 +21,13 @@ Responses retain `scope.kind=STATION`, incomplete recent-window coverage, `workR
 Local GO suite109/109 passed without skips using exact Observatory source. Worker Wrangler dry-run passed with existing bindings only. Independent merge review found no code blocker; its CI pin finding was corrected. Local protocol/source tests are not hosted production or physical-device acceptance.
 
 Before live use: review exact resulting heads; prepare explicit binding/grant and runtime catalog activation; authorize release separately; perform hosted destination readback, mobile signature/update/data retention acceptance and Factory duration/cleanup proof. Do not reuse an older approval, overwrite newer GO deployment or replay an UNKNOWN request. Slack is excluded from this integration work.
+
+## Isolated VISUAL Queue wire contract
+
+The optional Factory-owned queue uses the existing signed GO admission/status routes only after their existing HMAC/source/input validation. It is gated by explicit isolated-test activation and private queue binding; no production configuration is installed by this source change. Default routes continue synchronous execution.
+
+An authenticated queue response declares `executor=FACTORY_VISUAL_QUEUE_V1`, `domain=VISUAL`, exact request/job/source identity, `admittedAt`, and `deadlineAt=admittedAt+300000` (safe integer epoch milliseconds). GO reports ACCEPTED as `VISUAL_JOB_ACCEPTED`, `verified=false`, `executed=false` and no invented receipt. Read-only polls return ACCEPTED/IN_PROGRESS/UNKNOWN without consulting a possibly late raw Receipt. All reads retain fresh relay IDs.
+
+COMPLETED/FAILED require `admittedAt <= receiptObservedAt <= settledAt <= deadlineAt`, plus independent receipt readback matching job, source, exact observed timestamp and outcome. Completed receipts additionally match VISUAL. Duplicate queued submissions require read-only status reconciliation and cannot enter the synchronous completion path. Unknown executor versions, malformed metadata, missing/late settlement or mismatched receipts fail closed. A late raw completed receipt cannot override Queue UNKNOWN.
+
+GO tests117/117 pass against exact Observatory source. Factory actual configured machinery and signed-route integration uses synthetic render providers; this does not prove real hosted PNG output, hard cancellation, quota, deployment, or five-minute Cloudflare lifetime. Renderer hard cancellation and per-step deadline reservation remain unsupported; activation requires explicit review and hosted acceptance.

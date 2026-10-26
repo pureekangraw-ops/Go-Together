@@ -44,6 +44,14 @@ function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
   v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
   v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
 const safeJobReason=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,95}$/.test(value)?value:null;
+const QUEUE_EXECUTOR='FACTORY_VISUAL_QUEUE_V1';
+function queueMetadata(x,requestId){
+  if(x?.executor!==QUEUE_EXECUTOR||x.domain!=='VISUAL'||x.requestId!==requestId||
+    !JOB.test(x.jobId||'')||!/^[a-f0-9]{40}$/.test(x.sourceSha||'')||
+    !Number.isSafeInteger(x.admittedAt)||x.admittedAt<0||
+    !Number.isSafeInteger(x.deadlineAt)||x.deadlineAt-x.admittedAt!==300000)return null;
+  return {executor:QUEUE_EXECUTOR,sourceSha:x.sourceSha,admittedAt:x.admittedAt,deadlineAt:x.deadlineAt};
+}
 function receiptArtifacts(x){
   const artifacts=x.result?.artifacts;
   if(artifacts===undefined)return undefined; // Legacy receipts have no manifest.
@@ -162,6 +170,7 @@ export async function factoryDirectReadback(env,{receiptId}={}){
       verified,jobStatus:verified?'COMPLETED':x.status==='FAILED'?'FAILED':'UNKNOWN',
       reason:safeJobReason(x.reason),
       jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
+      ...(typeof x.observedAt==='string'&&Number.isFinite(Date.parse(x.observedAt))?{observedAt:x.observedAt}:{}),
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
       ...(artifacts===undefined?{}:{artifacts}),
       ...(x.machineResult?.workshopResult?{workshopResult:x.machineResult.workshopResult}:{})};
@@ -174,6 +183,27 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
     const r=await jsonRequest(env,'POST','/station/go-job-status',{requestId});
     if(!r.ok||r.data?.requestId!==requestId||!JOB.test(r.data.jobId||''))
       return failure('GO_JOB_STATUS_UNKNOWN',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false,httpStatus:r.httpStatus});
+    if(r.data.executor!==undefined&&r.data.executor!==QUEUE_EXECUTOR)
+      return failure('GO_QUEUE_STATUS_UNVERIFIED',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+    if(r.data.executor===QUEUE_EXECUTOR){
+      const x=r.data,meta=queueMetadata(x,requestId);
+      const uncertain=()=>failure('GO_QUEUE_STATUS_UNVERIFIED',{requestId,jobId:x.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
+      if(!meta)return uncertain();
+      if(['ACCEPTED','IN_PROGRESS','UNKNOWN'].includes(x.status))return {
+        ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:x.jobId,...meta,
+        receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,jobStatus:x.status,
+        verified:false,executed:false,readOnly:true,reason:safeJobReason(x.reason)};
+      // A raw Receipt can exist after the SLA expired. Only the coordinator's
+      // timely settlement plus independent correlated readback proves completion.
+      if(!['COMPLETED','FAILED'].includes(x.status)||!RECEIPT.test(x.receiptId||'')||
+        !Number.isSafeInteger(x.settledAt)||x.settledAt<meta.admittedAt||x.settledAt>meta.deadlineAt||
+        !Number.isSafeInteger(x.receiptObservedAt)||x.receiptObservedAt<meta.admittedAt||x.receiptObservedAt>x.settledAt)return uncertain();
+      const back=await factoryDirectReadback(env,{receiptId:x.receiptId});
+      if(!back.ok||back.jobId!==x.jobId||back.sourceSha!==meta.sourceSha||
+        Date.parse(back.observedAt||'')!==x.receiptObservedAt||
+        back.jobStatus!==x.status||(x.status==='COMPLETED'&&back.domain!=='VISUAL'))return uncertain();
+      return {...back,...meta,settledAt:x.settledAt,receiptObservedAt:x.receiptObservedAt,requestId,status:'GO_JOB_STATUS_READ'};
+    }
     const rid=r.data.receiptId;
     if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
     const pending={ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:r.data.jobId,receiptId:rid,
@@ -242,6 +272,16 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
     if(new TextEncoder().encode(JSON.stringify(input)).length>65536)
       return failure('GO_JOB_TOO_LARGE',{requestId:id});
     const r=await jsonRequest(env,'POST','/station/go-job',input),x=r.data||{};
+    const queued=queueMetadata(x,id);
+    if(r.ok&&x.status==='ACCEPTED'&&queued&&domain==='VISUAL'&&queued.sourceSha===h.sourceSha&&x.executed===false&&!x.receiptId)
+      return {ok:true,status:'VISUAL_JOB_ACCEPTED',requestId:id,jobId:x.jobId,...queued,
+        receiptId:null,jobStatus:'ACCEPTED',verified:false,executed:false};
+    // A duplicate queued admission can return a settled result. Never feed it
+    // into the legacy synchronous completion path: reconcile by read-only status.
+    if(x.executor!==undefined)return failure('GO_QUEUE_READBACK_REQUIRED',{
+      requestId:id,jobId:JOB.test(x.jobId||'')?x.jobId:null,
+      receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
+      jobStatus:'UNKNOWN',verified:false,httpStatus:r.httpStatus});
     if(!r.ok||x.status!=='COMPLETED'||x.requestId!==id||
       !JOB.test(x.jobId||'')||!RECEIPT.test(x.receiptId||''))
       return failure('GO_JOB_EFFECT_UNVERIFIED',{requestId:id,

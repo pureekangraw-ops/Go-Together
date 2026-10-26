@@ -23,8 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout pinned Observatory typed contract
+        uses: actions/checkout@v4
+        with:
+          repository: pureekangraw-ops/ygph-metropolis
+          ref: 2f81d39c344cb9fddfc2cfb3c4aa5900d4f59fdd
+          path: .goview-contract
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Verify owner-only Access and MCP compatibility
+        env:
+          GOVIEW_CONTRACT_ROOT: ${{ github.workspace }}/.goview-contract
         run: node --test --test-isolation=none tests/*.test.mjs

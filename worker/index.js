@@ -117,10 +117,24 @@ const OBS_TOOLS=[
 ];
 const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
 const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
+const GOVIEW_TRANSFER_ID={type:'string',pattern:'^[a-zA-Z0-9_-]{8,80}$'};
+const GOVIEW_TRANSFER_SHA={type:'string',pattern:'^[a-f0-9]{64}$'};
+const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
+ schema:{type:'string',const:'goview.transfer.v1'},transferId:GOVIEW_TRANSFER_ID,
+ operation:{type:'string',enum:['PROPOSAL','STUDIO']},
+ payloadType:{type:'string',enum:['goview.map-update','goview.map.package.v1']},
+ identity:{oneOf:[
+  SCHEMA({captureId:GOVIEW_TRANSFER_ID,baseVersion:{type:'integer',minimum:0},snapshotSha256:GOVIEW_TRANSFER_SHA},['captureId','baseVersion','snapshotSha256']),
+  SCHEMA({mapId:GOVIEW_IDENTITY.mapId,version:{type:'integer',minimum:1,maximum:999999}},['mapId','version'])
+ ]},sha256:GOVIEW_TRANSFER_SHA,payload:{type:'string',maxLength:1048576}
+},['schema','transferId','operation','payloadType','identity','sha256','payload']);
 export const tools=[
  ...Object.values(PROVIDER_TOOLS).flat(),
  {name:'hub_connections',description:'Read Hub V2 catalog and current provider connectivity through the Hub. No PANTHEON dependency.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
+ {name:'goview_transfer_read',description:'Read only the explicitly selected typed transfer ID and expected payload SHA-256 from the owner upload receipt. Verify contract and exact bytes; no listing or GPS/history discovery.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID,sha256:GOVIEW_TRANSFER_SHA},['transferId','sha256']),annotations:{readOnlyHint:true}},
+ {name:'goview_transfer_publish',description:'Publish an immutable PROPOSAL bound to an explicit snapshot digest/revision, or a separate Studio package. Never upload SNAPSHOT as GO. Verify exact readback; uncertainty requires exact read before any retry. Download does not apply a map: owner preview and Update remain required.',inputSchema:SCHEMA({envelope:GOVIEW_TRANSFER_ENVELOPE},['envelope'])},
+ {name:'goview_transfer_receipt',description:'Read the device report for one exact transfer ID. Missing means NOT_OBSERVED; a report is not independent physical execution proof. Never replay Update to obtain a receipt.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID},['transferId']),annotations:{readOnlyHint:true}},
  {name:'goview_publish',description:'Publish owner-requested GO map package and verify exact remote bytes. Does not apply on Android. Preserve returned transfer ID/version/full SHA for Android preview; on uncertain outcome read exact version before retry.',inputSchema:SCHEMA({...GOVIEW_IDENTITY,package:{type:'string',maxLength:1048832}},[...GOVIEW_REQUIRED,'package'])},
  {name:'goview_readback',description:'Read explicitly selected remote map artifact by exact version and expected full SHA-256. No listing, GPS/history collection or handset access. Handset receipt must be exported by owner.',inputSchema:SCHEMA(GOVIEW_IDENTITY,GOVIEW_REQUIRED),annotations:{readOnlyHint:true}},
  {name:'goview_focus_point',description:'Ask the owner GOVIEW map to move its live camera to these coordinates while visible. No GPS read and no map write. Call goview_command_status for device receipt.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude'])},
@@ -202,9 +216,16 @@ async function mcp(req,env,ctx){
  if((!Number.isFinite(reportedBytes)||reportedBytes<0||reportedBytes>1_000_000)&&
     !(await owner(req,env,ctx)))return error(401,'owner_auth_required');
  const x=await body(req,true,7_000_000);
- if(JSON.stringify(x).length>1_000_000 &&
-    !(x.method==='tools/call'&&x.params?.name==='factory_visual_upload'))
-    return error(413,'large_mcp_body_not_allowed');
+ const serialized=JSON.stringify(x);
+ if(serialized.length>1_000_000 &&
+    !(x.method==='tools/call'&&x.params?.name==='factory_visual_upload')) {
+    // Typed payloads permit 1MiB original bytes; JSON escaping can double the
+    // envelope size. Allow only this authenticated tool's bounded RPC wrapper.
+    if(!(x.method==='tools/call'&&x.params?.name==='goview_transfer_publish')||
+       new TextEncoder().encode(serialized).length>2*1048576+16384)
+       return error(413,'large_mcp_body_not_allowed');
+    if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');
+ }
  if(!['initialize','server/discover','tools/list','notifications/initialized'].includes(x.method) && !(await owner(req,env,ctx)))return reply({error:'owner_auth_required'},401,{'www-authenticate':'Bearer resource_metadata="'+ORIGIN+'/.well-known/oauth-protected-resource/mcp"'});
  const isModern=req.headers.get('MCP-Protocol-Version')===MCP_NEW||x.params?._meta?.['io.modelcontextprotocol/protocolVersion']===MCP_NEW;
  if(x.method==='server/discover')return mcpReply(x.id,{
@@ -315,7 +336,10 @@ return env.ASSETS.fetch(req);
 export async function appMcp(req,env){
  const group=new URL(req.url).pathname.match(/^\/hub-mcp\/(brain|factory|observatory|goview)$/)?.[1];
  if(!group)return error(404,'not_found');if(req.method!=='POST')return error(405,'method_not_allowed');
- const x=await body(req);
+ const x=await body(req,false,group==='goview'?2*1048576+16384:1_000_000);
+ if(JSON.stringify(x).length>1_000_000&&
+    !(group==='goview'&&x.method==='tools/call'&&x.params?.name==='goview_transfer_publish'))
+    return error(413,'large_mcp_body_not_allowed');
  const source=tools.filter(t=>hubGroup(t.name)===group);
  if(x.method==='notifications/initialized')return new Response(null,{status:202});
  if(x.method==='initialize')return rpc(x.id,{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'go-'+group,version:'1.0.0'}});
@@ -327,4 +351,5 @@ export async function appMcp(req,env){
  }
  return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});
 }
+
 

@@ -251,7 +251,7 @@ async function mcp(req,env,ctx){
       {type:'text',text:JSON.stringify({ok:true,observedAt:value.result.observedAt||null})}]},isModern);
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),
       content:[{type:'text',text:JSON.stringify(value)}],
-      ...((isObservatoryTool(name)||isGoviewTool(name))&&value?.ok===false?{isError:true}:{})},isModern);
+      ...((isObservatoryTool(name)||isGoviewTool(name)||hubGroup(name))&&value?.ok===false?{isError:true}:{})},isModern);
   }catch(e){
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:e.message}],isError:true},isModern);
   }

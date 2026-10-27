@@ -17,3 +17,15 @@ test('release gate accepts current routes and blocks legacy reintroduction or wr
   oldEntry.main = 'worker/index.js';
   assert.throws(() => assertCurrentRouting(oldEntry));
 });
+
+test('release routing checks actual API binding metadata, where HUB_V2 lost its named entrypoint', () => {
+  const bindings = current.services.map(({binding, ...value}) => ({type:'service', name:binding, ...value}));
+  bindings.push({type:'secret_text',name:'EXISTING_SECRET'});
+  assert.equal(assertCurrentRouting(current, bindings), true);
+  const drift = structuredClone(bindings);
+  delete drift.find(b => b.name === 'HUB_V2').entrypoint;
+  assert.throws(() => assertCurrentRouting(current, drift), /HUB_V2/);
+  const wrong = structuredClone(bindings);
+  wrong.find(b => b.name === 'HUB_V2').entrypoint = 'default';
+  assert.throws(() => assertCurrentRouting(current, wrong), /HUB_V2/);
+});

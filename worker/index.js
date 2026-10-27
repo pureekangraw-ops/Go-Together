@@ -1,6 +1,7 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
 import {buildBrainContext} from './brain-context.mjs';
+import {runBrainLearning} from './brain-learning.mjs';
 import {checkReferenceById,auditReferences} from './brain-reference-health.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
@@ -175,6 +176,10 @@ export const tools=[
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
+{name:'brain_learning',description:'Continue a source-linked learning cycle in the existing GO Brain D1: START -> PLAN -> OBSERVE -> USE -> observe again. Records a baseline, measured result, result pointer and revision history. USE makes provisional guidance visible to Operational context; never trains weights, changes policies or executes Work. STATUS reads an exact record via a wrapped response.',inputSchema:SCHEMA({
+ action:{type:'string',enum:['START','PLAN','OBSERVE','USE','STATUS']},
+ id:Q,expected_revision:N,payload:{type:'object',maxProperties:12}
+},['action']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 {name:'brain_context',description:'Read bounded source-linked GO Brain context for work continuity (operational) or RCA/learning review (evolution). Neither mode performs AI reasoning, tool execution, training, source verification or writes.',inputSchema:SCHEMA({query:Q,mode:{type:'string',enum:['operational','evolution','all']},limit:{type:'integer',minimum:1,maximum:15}},['query']),annotations:{readOnlyHint:true}},
 {name:'brain_reference_check',description:'Read-only HTTP status check for exactly one stored evidence_url by memory ID; never follows redirects or claims private content access.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
 {name:'brain_reference_audit',description:'Read-only on-demand spot-check of up to five recent stored evidence_url links; no recurring crawl, no memory writes.',inputSchema:SCHEMA({limit:{type:'integer',minimum:1,maximum:5}}),annotations:{readOnlyHint:true}},
@@ -252,6 +257,25 @@ if(name==='brain_reference_audit'){
  restrict(a,['limit']);
  try{return await auditReferences(d,a.limit??3);}
  catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
+}
+if(name==='brain_learning'){
+ restrict(a,['action','id','expected_revision','payload']);
+ try{
+  return await runBrainLearning({
+   get:key=>one(d,key),
+   save:input=>save(d,input),
+   edit:(key,patch,revision)=>edit(d,key,patch,revision),
+   verifyReceipt:async ({receiptId,workId})=>{
+    const receipt=await factoryDirectReadback(env,{receiptId});
+    if(receipt?.ok!==true||receipt?.verified!==true||
+       (workId?.startsWith('GOJOB-')&&receipt.jobId!==workId))return {verifiedReceipt:false};
+    return {verifiedReceipt:true,jobId:receipt.jobId};
+   }
+  },a);
+ }catch(err){
+  if(err instanceof RangeError)throw new Bad(err.message==='LEARNING_REVISION_CONFLICT'?409:400,err.message);
+  throw err;
+ }
 }
 if(name==='brain_context'){
  restrict(a,['query','mode','limit']);

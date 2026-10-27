@@ -31,6 +31,12 @@ MCP tools: `brain_search`, `brain_retrieve`, `brain_list`, `brain_save`, `brain_
 
 Factory jobs are staged as immutable proposals and run only after an owner click in the GO dashboard. See [the approval workflow](docs/factory-owner-approval-flow.md) for audit, notification, and rollout boundaries.
 
+### Install GO on a phone
+
+The owner dashboard is an installable web app (PWA), not an App Store/Play Store package. On iPhone/iPad, open the dashboard in Safari, sign in through Cloudflare Access, then use **Share → Add to Home Screen**. On Android, open it in Chrome, sign in, then choose **Install app** (or **Add to Home screen**) from the browser menu. Once installed, Factory approval status refreshes while the app is open and the owner can review, approve, reject, or check status there.
+
+The phone needs internet and owner authentication. The app does not cache private data, queue approvals offline, or send push notifications.
+
 ## Storage & safety
 
 `schema.sql` captures owned D1 tables, indexes, and audit triggers. Never connect the `picxie` database here. No WorkID is issued by this service; optional `work_id` is a pointer to the original Work System record.

@@ -16,6 +16,10 @@ The previous direct submit tool is removed from GO's tool catalog; the replaceme
 
 The notification surface is the GO-Together dashboard's **Factory job approvals** panel and pending-count badge. This is persistent in-app visibility, not a push alert if the page is closed. No notification service or credential is added.
 
+The dashboard can be installed on a phone as a PWA. iPhone/iPad: open the site in Safari and choose **Share → Add to Home Screen**. Android: open it in Chrome and choose **Install app** or **Add to Home screen**. After installation, sign in through Cloudflare Access on that device. The approval panel refreshes every 15 seconds while visible; all approve/reject/status actions still call the same owner-authenticated GO endpoints.
+
+The service worker is network-only and never caches `/api/*`, approval payloads, or owner data. Offline approvals are unavailable; no push notifications are sent.
+
 Apply `migrations/0002_factory_approvals.sql` before deployment. The GO Factory tool catalog changes and must be refreshed/reviewed in Hub once; that schema review is separate from each owner approval click. Deploy only after migration, CI, and exact source review. Production deployment and the one-time Hub schema approval are not performed by this change.
 
 ## Scope and limits

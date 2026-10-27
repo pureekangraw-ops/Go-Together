@@ -101,7 +101,11 @@ test('existing Factory submit exposes optional CODE Github destination, no dupli
  assert.deepEqual(tool.inputSchema.properties.githubDelivery.required,['repo','baseSha','filePath']);
  assert.equal(registeredTools.filter(x=>x.name==='factory_direct_submit').length,1);
  assert.equal(registeredTools.some(x=>x.name==='factory_code_run_to_github'),false);
- assert.ok(JSON.stringify(tool.inputSchema.properties.spec).includes('PROOF'));
- assert.ok(JSON.stringify(tool.inputSchema.properties.spec).includes('VISUAL'));
- assert.ok(JSON.stringify(tool.inputSchema.properties.spec).includes('LOGIC'));
+ const spec=JSON.stringify(tool.inputSchema.properties.spec);
+ assert.ok(spec.includes('CATALOG') && spec.includes('RECEIPT_CHECK') &&
+   spec.includes('TOOLKIT'),'PROOF variants preserved');
+ assert.ok(spec.includes('"design"') && spec.includes('"viewport"'),
+   'VISUAL schema preserved');
+ assert.ok(spec.includes('DWARF-01_TRAINING'),'LOGIC schema preserved');
+ assert.ok(spec.includes('"baseSource"'),'CODE schema preserved');
 });

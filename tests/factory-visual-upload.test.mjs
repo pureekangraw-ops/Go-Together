@@ -63,8 +63,8 @@ test('GO schema exposes explicit inputRef cutouts and separate upload/status too
  const tools=(await list.json()).result.tools;
  assert.ok(tools.some(t=>t.name==='factory_visual_upload'));
  assert.ok(tools.some(t=>t.name==='factory_visual_upload_status'));
- const submit=tools.find(t=>t.name==='factory_direct_submit');
- assert.ok(submit.inputSchema.properties.spec.oneOf.some(o=>o.properties.imageSplit));
+ const propose=tools.find(t=>t.name==='factory_direct_propose');
+ assert.ok(propose.inputSchema.properties.spec.oneOf.some(o=>o.properties.imageSplit));
 });
 test('signed GO upload persists original bytes without issuing a Factory job',async()=>{
  const {env,seen}=fixture();

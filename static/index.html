@@ -3,24 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="GO-Together">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
 <title>GO-Together · Personal Brain</title>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--surface:#f9f8f7;--surface2:#f0efed;--ink:#2c2c2b;--muted:#74716c;--line:#e6e5e3;--blue:#2783de;--blue-soft:#e5f2fc;--green:#46a171;--green-soft:#e8f1ec;--orange:#d5803b;--orange-soft:#fbebde;--red:#e56458;--red-soft:#fce9e7;--shadow:0 1px 2px rgba(0,0,0,.05),0 4px 12px rgba(0,0,0,.04)}
 @media(prefers-color-scheme:dark){:root{--bg:#191919;--surface:#202020;--surface2:#292927;--ink:#fff;--muted:rgba(255,255,255,.68);--line:rgba(255,255,255,.17);--blue:#5e9fe8;--blue-soft:rgba(94,159,232,.13);--green:#72bc8f;--green-soft:rgba(114,188,143,.12);--orange:#de9255;--orange-soft:rgba(222,146,85,.12);--red:#e97366;--red-soft:rgba(233,115,102,.12);--shadow:0 1px 2px rgba(0,0,0,.18),0 4px 12px rgba(0,0,0,.12)}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}button{min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:9px 14px;cursor:pointer}button:hover{border-color:var(--blue)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid color-mix(in srgb,var(--blue) 38%,transparent);outline-offset:1px}.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:650}.danger{color:var(--red)}.app{max-width:1120px;margin:auto;padding:24px 32px 52px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 0 22px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--blue-soft);color:var(--blue);font-size:20px}.brand h1{font-size:20px;line-height:1.15;margin:0}.brand p{margin:3px 0 0;color:var(--muted);font-size:14px}.local{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}.dot{width:8px;height:8px;border-radius:50%;background:var(--green)}.intro{padding:28px 0 20px}.intro h2{font-size:28px;line-height:1.2;letter-spacing:-.03em;margin:0 0 8px}.intro p{max-width:690px;margin:0;color:var(--muted)}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:4px 0 24px}.stat{padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.stat span{display:block;color:var(--muted);font-size:14px}.stat strong{display:block;margin-top:2px;font-size:23px;line-height:1.3}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px}.search{flex:1;position:relative}.search input{width:100%;height:46px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);padding:10px 14px 10px 42px}.search:before{content:"⌕";position:absolute;left:15px;top:8px;color:var(--muted);font-size:23px}.toolbar select{height:46px;min-width:150px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);padding:0 12px}.grid{display:grid;grid-template-columns:minmax(270px,.88fr) minmax(0,1.4fr);gap:16px;align-items:start}.panel{border:1px solid var(--line);border-radius:12px;background:var(--bg);overflow:hidden}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid var(--line)}.panel-head h3{font-size:16px;margin:0}.count{color:var(--muted);font-size:14px}.list{max-height:610px;overflow:auto}.card{display:block;width:100%;min-height:auto;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;padding:14px 16px}.card:last-child{border-bottom:0}.card.selected{background:var(--blue-soft)}.card-title{display:block;font-weight:650;margin:4px 0}.meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:13px}.excerpt{display:block;margin-top:5px;color:var(--muted);font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.badge{display:inline-flex;align-items:center;min-height:23px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);font-size:12px;font-weight:600}.badge.core_identity{background:var(--blue-soft);color:var(--blue)}.badge.operational_memory{background:var(--green-soft);color:var(--green)}.badge.skill{background:var(--orange-soft);color:var(--orange)}.badge.needs_review{background:var(--orange-soft);color:var(--orange)}.badge.stale,.badge.archived{background:var(--surface2)}.badge.deleted{background:var(--red-soft);color:var(--red)}.empty{padding:34px 20px;text-align:center;color:var(--muted)}.empty strong{display:block;color:var(--ink);margin-bottom:4px}.editor{padding:18px}.editor-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:15px}.editor-top h3{margin:0;font-size:18px}.editor-top p{margin:3px 0 0;color:var(--muted);font-size:14px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field{display:flex;flex-direction:column;gap:5px}.field.full{grid-column:1/-1}.field label{font-size:14px;font-weight:620}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:10px 11px}.field input,.field select{min-height:44px}.field textarea{min-height:112px;resize:vertical}.helper{color:var(--muted);font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.notice{margin:0 0 18px;border:1px solid color-mix(in srgb,var(--blue) 30%,var(--line));background:var(--blue-soft);color:var(--ink);padding:11px 13px;border-radius:9px;font-size:14px}.notice strong{color:var(--blue)}.history{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}.history summary{cursor:pointer;font-weight:620}.history ol{padding-left:22px;color:var(--muted);font-size:14px}.history li{padding:3px 0}.toast{position:fixed;right:22px;bottom:20px;max-width:360px;padding:12px 16px;border-radius:9px;background:var(--ink);color:var(--bg);box-shadow:var(--shadow);z-index:10}.hidden{display:none!important}.status-note{margin-top:12px;font-size:13px;color:var(--muted)}
+.install-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:16px 0;padding:13px 15px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.install-banner strong,.install-banner span{display:block}.install-banner span{margin-top:3px;color:var(--muted);font-size:13px}.install-banner button{flex:none}
 @media(max-width:760px){.app{padding:16px}.topbar{align-items:flex-start}.local{max-width:130px;text-align:right;font-size:12px}.intro{padding-top:22px}.intro h2{font-size:25px}.stats{gap:8px}.stat{padding:11px}.stat strong{font-size:20px}.grid{grid-template-columns:1fr}.list{max-height:280px}.toolbar{flex-wrap:wrap}.search{flex-basis:100%}.toolbar select{flex:1;min-width:0}.form-grid{grid-template-columns:1fr}.field.full{grid-column:auto}}
 @media(max-width:390px){.app{padding:12px}.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:1/-1}.brand p{font-size:12px}.intro h2{font-size:23px}}
 .zones{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.zone{font-weight:700;flex:1;min-width:90px}.zone.active{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+.approval-panel{margin:0 0 22px}.approval-note{margin:12px 16px;color:var(--muted);font-size:14px}.approval-list{padding:0 16px 8px}.approval-card{border-top:1px solid var(--line);padding:14px 0}.approval-card h4{margin:0 0 6px;font-size:16px}.approval-card pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;padding:12px;border-radius:8px;background:var(--surface);font-size:12px}.approval-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.review-confirm{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}.approval-status{font-weight:700}.approval-status.pending{color:var(--orange)}.approval-status.completed{color:var(--green)}.approval-status.unknown,.approval-status.failed,.approval-status.failed_no_execution{color:var(--red)}#approvals-jump{display:flex;align-items:center;gap:6px}.approval-panel .panel-head>div{display:flex;align-items:baseline;gap:10px}
 </style>
 </head>
 <body>
 <main class="app">
   <header class="topbar">
     <div class="brand"><div class="mark" aria-hidden="true">✳</div><div><h1>GO-Together</h1><p>Personal Brain · Owner Workspace</p></div></div>
-    <div class="local"><span class="dot" aria-hidden="true"></span><span>Cloudflare · Private D1</span></div>
+    <div class="local"><button type="button" id="approvals-jump">Factory approvals <span id="pending-approval-badge" class="badge hidden">0</span></button><span class="dot" aria-hidden="true"></span><span>Cloudflare · Private D1</span></div>
   </header>
+  <section id="install-banner" class="install-banner hidden" aria-label="Install GO on this device">
+    <div><strong>Install GO on this phone</strong><span>Open approvals from your home screen. Internet and Cloudflare Access sign-in are required.</span></div>
+    <button type="button" id="install-app-button">Install app</button>
+  </section>
   <p><small>Private owner access is verified once by Cloudflare. Intake follows GO instructions.</small></p>
   <section class="intro"><h2>Knowledge that stays useful.</h2><p>Keep identity, skills, and work-earned lessons together. Link memories to evidence, review what changed, and retrieve relevant notes when work returns.</p></section>
+  <section id="factory-approvals" class="approval-panel panel" aria-label="Factory job approvals">
+    <div class="panel-head"><div><h3>Factory job approvals</h3><span class="count" id="approval-count">Loading…</span></div><button type="button" id="approval-refresh">Refresh</button></div>
+    <p class="approval-note">Proposals stay here in GO. Nothing runs until you review the exact request and click “Approve &amp; run.” GO records who approved it, when, and the request hash. Uncertain jobs are checked read-only and never retried automatically.</p>
+    <div id="approval-list" class="approval-list" aria-live="polite"><div class="empty"><strong>Loading approvals</strong>Connecting to the owner approval inbox…</div></div>
+  </section>
   <section class="stats" aria-label="Memory counts">
     <div class="stat"><span>Active memories</span><strong id="stat-active">0</strong></div>
     <div class="stat"><span>Needs review</span><strong id="stat-review">0</strong></div>
@@ -95,7 +113,74 @@ $("delete-btn").addEventListener("click",async()=>{if(!selected)return;try{await
 $("restore-btn").addEventListener("click",async()=>{if(!selected)return;try{await api(`/api/memories/${encodeURIComponent(selected)}/restore`,{method:"POST",body:JSON.stringify({expected_revision:revision})});toast("Memory restored");$("status-filter").value="all";await refresh();await loadItem(selected);}catch(e){toast(e.message);}});
 document.querySelectorAll(".zone").forEach(b=>b.addEventListener("click",()=>setZone(b.dataset.zone)));
 let timer;["search","kind-filter","status-filter"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{clearTimeout(timer);timer=setTimeout(refresh,id==="search"?180:0);}));
-refresh();
+async function refreshApprovals(){
+  try{
+    const data=await api('/api/factory-approvals');
+    const rows=Array.isArray(data.items)?data.items:[];
+    const pending=rows.filter(x=>x.status==='PENDING').length;
+    $("approval-count").textContent=`${pending} pending · ${rows.length} recent`;
+    const badge=$("pending-approval-badge");badge.textContent=String(pending);badge.classList.toggle('hidden',pending===0);
+    if(!rows.length){$("approval-list").innerHTML='<div class="empty"><strong>No Factory approvals</strong>New proposals from GO will appear here; no job runs before you approve it.</div>';return;}
+    $("approval-list").innerHTML=rows.map(x=>{
+      const status=esc(String(x.status||'UNKNOWN'));
+      const cls=status.toLowerCase().replace(/[^a-z_]/g,'');
+      const payload=esc(JSON.stringify(x.payload||{},null,2));
+      const when=esc(new Date(x.createdAt).toLocaleString());
+      const buttons=x.status==='PENDING'
+        ?`<label class="review-confirm"><input type="checkbox" data-reviewed="${esc(x.id)}" disabled> I reviewed this exact request</label><button class="primary" data-approve="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}" disabled>Approve &amp; run</button><button class="danger" data-reject="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}">Reject</button>`
+        :['RUNNING','DISPATCHING','UNKNOWN'].includes(x.status)
+          ?`<button data-check="${esc(x.id)}">Check status</button>`:'';
+      const proof=x.approvedBy?`<div class="meta">Approved by ${esc(x.approvedBy)} · ${esc(new Date(x.approvedAt).toLocaleString())} · payload ${esc(x.approvedPayloadSha256||'')}</div>`:'';
+      const rejected=x.rejectedBy?`<div class="meta">Rejected by ${esc(x.rejectedBy)} · ${esc(new Date(x.rejectedAt).toLocaleString())}</div>`:'';
+      const result=x.result?`<div class="meta">Latest result: ${esc(x.result.status||x.result.jobStatus||'recorded')} · request ${esc(x.requestId)}</div>`:'';
+      return `<article class="approval-card"><h4>${esc(x.domain)} Factory job <span class="approval-status ${cls}">${status}</span></h4><div class="meta">Proposed ${when} · request ${esc(x.requestId)}</div><details data-review-details="${esc(x.id)}"><summary>Review exact request · SHA-256 ${esc(x.payloadSha256)}</summary><pre>${payload}</pre></details>${proof}${rejected}${result}<div class="approval-actions">${buttons}</div></article>`;
+    }).join('');
+    document.querySelectorAll('[data-review-details]').forEach(d=>d.addEventListener('toggle',()=>{
+      const id=d.dataset.reviewDetails,check=document.querySelector(`[data-reviewed=\"${CSS.escape(id)}\"]`),approve=document.querySelector(`[data-approve=\"${CSS.escape(id)}\"]`);
+      if(!d.open&&check){check.checked=false;check.disabled=true;if(approve)approve.disabled=true;}
+      else if(d.open&&check)check.disabled=false;
+    }));
+    document.querySelectorAll('[data-reviewed]').forEach(c=>c.addEventListener('change',()=>{
+      const b=document.querySelector(`[data-approve=\"${CSS.escape(c.dataset.reviewed)}\"]`);if(b)b.disabled=!c.checked;
+    }));
+    document.querySelectorAll('[data-approve]').forEach(b=>b.addEventListener('click',()=>handleApproval(b.dataset.approve,'approve',b.dataset.payloadSha256)));
+    document.querySelectorAll('[data-reject]').forEach(b=>b.addEventListener('click',()=>handleApproval(b.dataset.reject,'reject',b.dataset.payloadSha256)));
+    document.querySelectorAll('[data-check]').forEach(b=>b.addEventListener('click',()=>checkApprovalStatus(b.dataset.check)));
+  }catch(e){$("approval-count").textContent='Unavailable';$("approval-list").innerHTML=`<div class="empty"><strong>Could not load approvals</strong>${esc(e.message)}</div>`;}
+}
+async function handleApproval(id,action,payloadSha256){
+  const button=document.querySelector(`[data-${action==="approve"?"approve":"reject"}="${CSS.escape(id)}"]`);
+  if(button)button.disabled=true;
+  try{
+    const out=await api(`/api/factory-approvals/${encodeURIComponent(id)}/${action}`,{method:'POST',body:JSON.stringify({payloadSha256})});
+    toast(action==='approve'?`Approval recorded · ${out.approval.status}`:'Proposal rejected');
+    await refreshApprovals();
+  }catch(e){if(button)button.disabled=false;toast(e.message);await refreshApprovals();}
+}
+async function checkApprovalStatus(id){
+  const b=document.querySelector(`[data-check="${CSS.escape(id)}"]`);if(b)b.disabled=true;
+  try{const out=await api(`/api/factory-approvals/${encodeURIComponent(id)}/status`,{method:'POST',body:'{}'});toast(`Factory status · ${out.approval.status}`);await refreshApprovals();}
+  catch(e){toast(e.message);if(b)b.disabled=false;}
+}
+$("approval-refresh").addEventListener('click',refreshApprovals);
+$("approvals-jump").addEventListener('click',()=>$("factory-approvals").scrollIntoView({behavior:'smooth',block:'start'}));
+setInterval(()=>{if(document.visibilityState==='visible')refreshApprovals();},15000);
+
+const installBanner=$("install-banner"),installButton=$("install-app-button");
+let deferredInstallPrompt=null;
+function isStandalone(){return window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;}
+function isPhoneOrTablet(){return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);}
+function updateInstallBanner(){installBanner.classList.toggle("hidden",isStandalone()||!(isPhoneOrTablet()||deferredInstallPrompt));}
+window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();deferredInstallPrompt=event;updateInstallBanner();});
+window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;updateInstallBanner();toast("GO is installed on this device.");});
+installButton.addEventListener("click",async()=>{
+  if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;updateInstallBanner();return;}
+  const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  toast(ios?"In Safari, tap Share, then Add to Home Screen.":"Open your browser menu and choose Install app or Add to Home screen.");
+});
+updateInstallBanner();
+if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("/service-worker.js",{scope:"/"}).catch(()=>{});
+refresh();refreshApprovals();
 </script>
 </body>
 </html>

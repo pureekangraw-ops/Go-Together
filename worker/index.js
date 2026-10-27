@@ -6,6 +6,7 @@ import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
 import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryJobStampStatus, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
+import {FactoryApprovalError,createFactoryApproval,getFactoryApproval,listFactoryApprovals,approveFactoryApproval,rejectFactoryApproval,reconcileFactoryApproval} from './factory-approvals.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -76,6 +77,38 @@ return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical m
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
 async function body(req,allowEmpty=false,maxLength=1000000){const txt=await req.text();if(txt.length>maxLength)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
+if(p==='/api/factory-approvals'&&m==='GET')return reply({items:await listFactoryApprovals(d)});
+const approvalRoute=/^\/api\/factory-approvals\/([0-9a-f-]{36})(?:\/(approve|reject|status))?$/.exec(p);
+if(approvalRoute){
+ const [,approvalId,action]=approvalRoute;
+ if(!action&&m==='GET'){
+  const item=await getFactoryApproval(d,approvalId);
+  return item?reply(item):error(404,'APPROVAL_NOT_FOUND');
+ }
+ if(action==='approve'&&m==='POST'){
+  if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
+  const args=await body(req);restrict(args,['payloadSha256']);
+  const result=await approveFactoryApproval(d,{id:approvalId,payloadSha256:args.payloadSha256,actor:env.OWNER_EMAIL,
+   dispatch:payload=>payload.githubDelivery
+    ?runFactoryCodeToGithub(env,{requestId:payload.requestId,codeSpec:payload.spec,
+      repo:payload.githubDelivery.repo,baseSha:payload.githubDelivery.baseSha,
+      filePath:payload.githubDelivery.filePath,approved:true})
+    :factoryDirectSubmit(env,{domain:payload.domain,spec:payload.spec,requestId:payload.requestId},true)});
+  return reply({approval:result.approval,result:result.dispatchResult});
+ }
+ if(action==='reject'&&m==='POST'){
+  if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
+  const args=await body(req);restrict(args,['payloadSha256']);
+  return reply({approval:await rejectFactoryApproval(d,{id:approvalId,payloadSha256:args.payloadSha256,actor:env.OWNER_EMAIL})});
+ }
+ if(action==='status'&&m==='POST'){
+  if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
+  const args=await body(req,true);restrict(args,[]);
+  return reply({approval:await reconcileFactoryApproval(d,{id:approvalId,
+   statusReader:requestId=>factoryDirectJobStatus(env,{requestId})})});
+ }
+ return error(405,'method_not_allowed');
+}
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
 if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));
@@ -182,10 +215,12 @@ export const tools=[
 {name:'factory_job_stamp_status',description:'Read only one GO-owned Job Stamp central evaluation and delivery eligibility by signed Factory receipt. Never executes a machine or claims recipient acceptance.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
-{name:'factory_direct_submit',description:'Existing GO owner-authorized Factory job for CODE, VISUAL, LOGIC and PROOF. For CODE only, optional githubDelivery sends the verified completed receipt and bytes through Hub V2 to a reviewable GitHub PR and starts existing PR CI. No duplicate Factory execution, no automatic merge or production deploy. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
+{name:'factory_direct_propose',description:'Create a durable Factory job proposal in the GO approvals inbox. This never executes Factory. The owner must review the exact payload and click Approve & run in the GO dashboard; approval identity, time and payload hash are recorded before the existing signed Factory path runs. No auto merge or production deploy.',inputSchema:SCHEMA({
   domain:{type:'string',enum:['CODE','VISUAL','LOGIC','PROOF']},spec:GO_FACTORY_SPEC,
-  requestId:Q,githubDelivery:GO_CODE_GITHUB_DESTINATION,approved:{type:'boolean',const:true}
-},['domain','spec','approved']),annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},
+  requestId:{type:'string',pattern:'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'},
+  githubDelivery:GO_CODE_GITHUB_DESTINATION
+},['domain','spec','requestId']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
+{name:'factory_direct_approval_status',description:'Read the durable state of one GO Factory approval proposal. This never approves, executes, or retries a job.',inputSchema:SCHEMA({approvalId:Q},['approvalId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_visual_upload',description:'Upload owner-approved PNG sheet through signed GO to Factory R2. Returns immutable sourceRef and independent status readback, not finished assets.',inputSchema:SCHEMA({
  pngBase64:{type:'string',minLength:80,maxLength:5592408},
  sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},requestId:Q,
@@ -214,18 +249,20 @@ if(isObservatoryTool(name))return observatoryDirect(env,name,a);
 if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJobStampStatus(env,a);}
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
-if(name==='factory_direct_submit'){
- restrict(a,['domain','spec','requestId','approved','githubDelivery']);
- if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');
- if(a.githubDelivery!==undefined){
-  if(a.domain!=='CODE')throw new Bad(400,'github_delivery_requires_code_domain');
-  const destination=a.githubDelivery;
-  restrict(destination,['repo','baseSha','filePath']);
-  return runFactoryCodeToGithub(env,{requestId:a.requestId,codeSpec:a.spec,
-   repo:destination.repo,baseSha:destination.baseSha,
-   filePath:destination.filePath,approved:true});
- }
- return factoryDirectSubmit(env,{domain:a.domain,spec:a.spec,requestId:a.requestId},true);
+if(name==='factory_direct_propose'){
+ restrict(a,['domain','spec','requestId','githubDelivery']);
+ if(a.githubDelivery!==undefined)restrict(a.githubDelivery,['repo','baseSha','filePath']);
+ const proposal=await createFactoryApproval(d,{domain:a.domain,spec:a.spec,
+  requestId:a.requestId,githubDelivery:a.githubDelivery,createdBy:env.OWNER_EMAIL});
+ return {ok:true,status:proposal.status==='PENDING'?'PENDING_OWNER_APPROVAL':'APPROVAL_'+proposal.status,
+  approvalId:proposal.id,requestId:proposal.requestId,payloadSha256:proposal.payloadSha256,
+  approvalUrl:ORIGIN+'/#factory-approvals',executionStarted:Boolean(proposal.approvedAt),
+  approvalRequired:proposal.status==='PENDING'};
+}
+if(name==='factory_direct_approval_status'){
+ restrict(a,['approvalId']);
+ const item=await getFactoryApproval(d,a.approvalId);
+ return item?{ok:true,approval:item}:{ok:false,status:'APPROVAL_NOT_FOUND'};
 }
 if(name==='factory_visual_upload'){restrict(a,['pngBase64','sha256','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryVisualUpload(env,{pngBase64:a.pngBase64,sha256:a.sha256,requestId:a.requestId},true);}
 if(name==='factory_visual_zip_chunk'){restrict(a,['receiptId','artifactRef','offset','length','expectedSha256']);return factoryVisualZipChunk(env,a);}
@@ -380,7 +417,7 @@ if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+
 if(p==='/mcp')return await mcp(req,env,ctx);
 if(p.startsWith('/api/'))return await api(req,env,url,ctx);
 return env.ASSETS.fetch(req);
-}catch(e){if(e instanceof Bad)return error(e.status,e.message);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};
+}catch(e){if(e instanceof Bad)return error(e.status,e.message);if(e instanceof FactoryApprovalError)return error(e.status,e.code);console.error('GO-Together error',e?.name);return error(500,'internal_error');}}};
 
 
 

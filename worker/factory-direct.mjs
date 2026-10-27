@@ -285,7 +285,8 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
     if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
     const pending={ok:true,status:'GO_JOB_STATUS_READ',requestId,jobId:r.data.jobId,receiptId:rid,
       jobStatus:'UNKNOWN',verified:false,executed:false,readOnly:true,reason:safeJobReason(r.data.reason)};
-    if(r.data.status==='IN_PROGRESS')return {...pending,jobStatus:'IN_PROGRESS'};
+    if(['ACCEPTED','IN_PROGRESS','UNKNOWN'].includes(r.data.status))
+      return {...pending,jobStatus:r.data.status};
     const receipt=await factoryDirectReadback(env,{receiptId:rid});
     if(!receipt.ok||receipt.jobId!==r.data.jobId)
       return {...pending,status:'GO_JOB_READBACK_UNVERIFIED',ok:false};

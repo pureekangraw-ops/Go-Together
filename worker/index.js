@@ -1,10 +1,11 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
+import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
 import {buildBrainContext} from './brain-context.mjs';
 import {checkReferenceById,auditReferences} from './brain-reference-health.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
-import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
+import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factoryDirectJobStatus, factoryDirectReadback, factoryDirectArtifact, factoryJobStampStatus, factoryWorkshopContent, factoryVisualUpload, factoryVisualUploadStatus, factoryVisualZipChunk} from './factory-direct.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
@@ -86,6 +87,7 @@ if(p==='/api/context'&&m==='GET'){
  if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
  return reply(buildBrainContext(await search(d,url.searchParams.get('q')||'',Math.min(50,Math.max(20,limit*4))),{mode,limit}));
 }
+
 if(p==='/api/references/check'&&m==='GET'){
  const id=url.searchParams.get('id')||'';
  try{return reply(await checkReferenceById(d,id));}
@@ -130,7 +132,16 @@ const GO_FACTORY_SPLIT=SCHEMA({imageSplit:SCHEMA({
  canvas:{type:'integer',minimum:64,maximum:1024},
  names:{type:'array',minItems:1,maxItems:12,items:{type:'string',pattern:'^[A-Za-z0-9_-]{1,64}$'}}
 },['sourceRef','count','columns','canvas','names'])},['imageSplit']);
-const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+const GO_FACTORY_PROOF_CATALOG=SCHEMA({mode:{type:'string',const:'CATALOG'},caseIds:{type:'array',maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^GOLDEN-[A-Z0-9-]{3,120}$'}}},['mode']);
+const GO_FACTORY_PROOF_CHECK=SCHEMA({mode:{type:'string',const:'RECEIPT_CHECK'},targetSourceSha:{type:'string',pattern:'^[a-f0-9]{40}$'},receiptIds:{type:'array',minItems:1,maxItems:8,uniqueItems:true,items:{type:'string',pattern:'^receipt-[A-Za-z0-9-]{8,80}$'}}},['mode','targetSourceSha','receiptIds']);
+const GO_FACTORY_PROOF_TOOLKIT=SCHEMA({
+  mode:{type:'string',const:'TOOLKIT'},
+  action:{type:'string',enum:['PLAYBOOKS','LIST_CASES','GET_CASE','REGISTER_CASE',
+    'AUDIT_RECEIPT','OPEN_ENV','ENV_STATUS','CLOSE_ENV','RUN_CASE','READ_RUN',
+    'COMPARE','RCA','REPORT']},
+  payload:{type:'object',maxProperties:12}
+},['mode','action','payload']);
+const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,GO_FACTORY_PROOF_TOOLKIT,SCHEMA({workshop:{type:"object"}},["workshop"])]};
 
 const OBS_ACTION=SCHEMA({type:{type:'string',enum:['navigate','back','forward','reload','scroll','click','type']},url:Q,selector:Q,value:Q,y:{type:'number'}},['type']);
 const OBS_TOOLS=[
@@ -166,10 +177,11 @@ export const tools=[
 {name:'brain_reference_check',description:'Read-only HTTP status check for exactly one stored evidence_url by memory ID; never follows redirects or claims private content access.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
 {name:'brain_reference_audit',description:'Read-only on-demand spot-check of up to five recent stored evidence_url links; no recurring crawl, no memory writes.',inputSchema:SCHEMA({limit:{type:'integer',minimum:1,maximum:5}}),annotations:{readOnlyHint:true}},
 
+{name:'factory_job_stamp_status',description:'Read only one GO-owned Job Stamp central evaluation and delivery eligibility by signed Factory receipt. Never executes a machine or claims recipient acceptance.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
-  domain:{type:'string',enum:['CODE','VISUAL','LOGIC']},spec:GO_FACTORY_SPEC,
+  domain:{type:'string',enum:['CODE','VISUAL','LOGIC','PROOF']},spec:GO_FACTORY_SPEC,
   requestId:Q,approved:{type:'boolean',const:true}
 },['domain','spec','approved']),annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},
 {name:'factory_visual_upload',description:'Upload owner-approved PNG sheet through signed GO to Factory R2. Returns immutable sourceRef and independent status readback, not finished assets.',inputSchema:SCHEMA({
@@ -187,6 +199,8 @@ export const tools=[
 {name:'factory_direct_job_status',description:'Read Factory job/receipt by a prior GO-generated requestId; never reexecutes work.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_readback',description:'Read one Factory-owned GO job receipt by receiptId; no Work Pass and no machine execution.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_artifact',description:'Return receipt-bound CODE JS/VISUAL PNG or Workshop package JSON bytes with verified transport/content SHA-256.',inputSchema:SCHEMA({receiptId:Q,artifactRef:Q},['receiptId','artifactRef']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
+{name:'factory_code_deliver_github',description:'Create a GitHub work branch, exact CODE source file and review PR only from a verified existing GO-owned Factory CODE receipt. No rerun, merge or deployment; uncertain effects require read-only reconciliation.',inputSchema:SCHEMA({receiptId:Q,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['receiptId','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
+{name:'factory_code_run_to_github',description:'One owner-approved bounded Factory CODE execution followed by independently verified receipt and GitHub work branch/commit/readback/review PR. Existing GitHub PR CI runs separately; this does not merge or deploy. Preserve the request ID when an effect is uncertain.',inputSchema:SCHEMA({codeSpec:GO_FACTORY_CODE,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['codeSpec','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 ];
 
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
@@ -196,6 +210,7 @@ if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
 if(isObservatoryTool(name))return observatoryDirect(env,name,a);
+if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJobStampStatus(env,a);}
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_submit'){
@@ -210,6 +225,8 @@ if(name==='factory_workshop_content'){restrict(a,['content','approved']);if(a.ap
 if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryDirectJobStatus(env,a);}
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
+if(name==='factory_code_deliver_github'){restrict(a,['receiptId','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return deliverFactoryCodeToGithub(env,a);}
+if(name==='factory_code_run_to_github'){restrict(a,['codeSpec','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return runFactoryCodeToGithub(env,a);}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};
@@ -235,6 +252,7 @@ if(name==='brain_context'){
  if(!Number.isInteger(limit)||limit<1||limit>15)throw new Bad(400,'invalid_context_limit');
  return buildBrainContext(await search(d,a.query,Math.min(50,Math.max(20,limit*4))),{mode,limit});
 }
+
 throw new Bad(404,'unknown_tool');}
 const rpc=(id,result)=>reply({jsonrpc:'2.0',id,result});
 const MCP_INFO={name:'go-together',version:'1.3.0'};

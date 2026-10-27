@@ -1,0 +1,111 @@
+name: GO | Manual Worker and approvals-assets deploy
+
+# Manual-only: merging this workflow never deploys GO.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY_GO_ASSETS to authorize this exact run'
+        required: true
+        type: string
+      expected_sha:
+        description: 'Full 40-character main commit SHA to deploy'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-together-production-assets
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require exact owner-triggered main source
+        shell: bash
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRM" == "DEPLOY_GO_ASSETS" ]] || { echo "::error::Incorrect deploy confirmation"; exit 1; }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] && [[ "$EXPECTED_SHA" == "$COMMIT_SHA" ]] || {
+            echo "::error::Expected source SHA does not match the selected main commit"
+            exit 1
+          }
+          echo "GO deploy candidate: $COMMIT_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify unchanged Hub and application routing
+        run: node scripts/assert-current-routing.mjs
+      - name: Verify Factory approvals UI, PWA and critical bindings
+        run: node scripts/assert-approval-assets.mjs
+      - name: Full GO Node regression
+        run: node --test --test-isolation=none tests/*.test.mjs
+      - name: Build Worker and assets without uploading
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc --dry-run --outdir "$RUNNER_TEMP/go-wrangler-dry-run"
+
+  production:
+    name: Owner-reviewed GO production deploy
+    needs: preflight
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: go-production
+      url: https://go-together.pureekangraw.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Re-check the exact source and target immediately before publish
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" == "$COMMIT_SHA" && "$GITHUB_REF" == "refs/heads/main" ]]
+          node scripts/assert-current-routing.mjs
+          node scripts/assert-approval-assets.mjs
+      - name: Deploy GO Worker and static assets together (preserve existing vars)
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ -n "$CLOUDFLARE_API_TOKEN" && -n "$CLOUDFLARE_ACCOUNT_ID" ]] || {
+            echo "::error::Missing Cloudflare deployment credentials"; exit 1;
+          }
+          npx --yes wrangler@4 deploy --config wrangler.jsonc --keep-vars
+      - name: Read back the live dashboard (no owner data or API mutations)
+        shell: bash
+        env:
+          LIVE_ORIGIN: https://go-together.pureekangraw.workers.dev
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS --max-time 30 -L -H 'Cache-Control: no-cache' \
+            -o "$RUNNER_TEMP/go-live-index.html" -w '%{http_code}' \
+            "$LIVE_ORIGIN/?go_release_sha=$COMMIT_SHA")"
+          echo "Live dashboard GET: HTTP $status" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" != "200" ]] || \
+             ! grep -Fq 'id="factory-approvals"' "$RUNNER_TEMP/go-live-index.html" || \
+             ! grep -Fq '/api/factory-approvals' "$RUNNER_TEMP/go-live-index.html"; then
+            echo "::error::Live approval UI could not be verified (Access, stale assets, or HTTP error)."
+            echo "Manual owner-authenticated browser readback is still required." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Live Factory approvals HTML visible without credentials; owner click-to-dispatch remains untested." >> "$GITHUB_STEP_SUMMARY"

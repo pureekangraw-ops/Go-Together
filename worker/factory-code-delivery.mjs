@@ -1,6 +1,6 @@
 // One existing GO-owned Factory CODE receipt -> a reviewable GitHub PR.
 // No Factory re-execution, merge, deployment, tokens in arguments, or new worker.
-import {factoryDirectReadback,factoryDirectArtifact} from './factory-direct.mjs';
+import {factoryDirectReadback,factoryDirectArtifact,factoryDirectSubmit} from './factory-direct.mjs';
 import {hubTool} from './hub-client.mjs';
 
 const SHA40=/^[a-f0-9]{40}$/, SHA256=/^[a-f0-9]{64}$/;
@@ -115,5 +115,53 @@ export async function deliverFactoryCodeToGithub(env,input={},deps={}){
  return {ok:true,status:'PR_OPENED',jobId:receipt.jobId,receiptId,sourceSha:receipt.sourceSha,
    artifactRef,artifactSha256:file.sha256,repo,branch,commitSha,filePath,
    prNumber,prUrl,delivered:true,merged:false,deployed:false,
+   applicationAccepted:false};
+}
+
+
+// One owner command: execute a bounded Factory CODE job, then deliver that
+// job's independently verified source bytes through the existing Hub V2 GitHub
+// provider. There is no second execution on uncertain results.
+// CI is started by GitHub's existing pull_request workflow after PR creation;
+// merge and Production deploy remain separately owner-authorized operations.
+export async function runFactoryCodeToGithub(env,input={},deps={}){
+ const submit=deps.submit||factoryDirectSubmit;
+ const deliver=deps.deliver||deliverFactoryCodeToGithub;
+ const {requestId,codeSpec,repo,baseSha,filePath,approved}=input;
+ const requestIsUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ if(approved!==true||!requestIsUuid.test(requestId||'')||
+    !codeSpec||typeof codeSpec!=='object'||Array.isArray(codeSpec)||
+    !REPO.test(repo||'')||!SHA40.test(baseSha||'')||
+    !PATH.test(filePath||'')||filePath.split('/').includes('..'))
+   return fail('CODE_RUN_TO_GITHUB_INPUT_INVALID');
+ let job;
+ try{job=await submit(env,{domain:'CODE',spec:codeSpec,requestId},true);}
+ catch{return {...fail('FACTORY_CODE_JOB_UNKNOWN_NO_REPLAY','FACTORY'),requestId};}
+ if(job?.ok!==true||job.status!=='GO_FACTORY_DELIVERABLE_READY'||
+    job.domain!=='CODE'||job.requestId!==requestId||
+    !/^receipt-[A-Za-z0-9-]{8,80}$/.test(job.receiptId||'')||
+    !JOB.test(job.jobId||'')||!SHA40.test(job.sourceSha||'')||
+    job.executed!==true||job.deliveredBytes!==true)
+   return {...fail('FACTORY_CODE_JOB_UNVERIFIED_NO_REPLAY','FACTORY'),
+     requestId,jobId:job?.jobId||null,receiptId:job?.receiptId||null,
+     jobState:job?.status||'UNKNOWN'};
+ // Delivery re-reads the actual Factory receipt and bytes; it never trusts the
+ // submit response's inline code or jumps straight to GitHub mutations.
+ let delivery;
+ try{delivery=await deliver(env,{receiptId:job.receiptId,repo,baseSha,
+    filePath,requestId,approved:true},deps);}
+ catch{return {...fail('FACTORY_GITHUB_DELIVERY_UNKNOWN_NO_REPLAY','GITHUB'),
+    requestId,receiptId:job.receiptId,jobId:job.jobId};}
+ if(delivery?.ok!==true)return {...delivery,requestId,
+    receiptId:job.receiptId,jobId:job.jobId,executed:true,
+    factoryCompleted:true};
+ if(delivery.receiptId!==job.receiptId||delivery.jobId!==job.jobId||
+    delivery.sourceSha!==job.sourceSha)
+   return {...fail('FACTORY_GITHUB_IDENTITY_MISMATCH','GITHUB'),
+     requestId,receiptId:job.receiptId,jobId:job.jobId,executed:true};
+ return {...delivery,requestId,status:'CODE_PR_READY_CI_PENDING',
+   factoryCompleted:true,executed:true,
+   ciStatus:'PENDING_EXTERNAL_GITHUB_ACTIONS',
+   reviewRequired:true,merged:false,deployed:false,
    applicationAccepted:false};
 }

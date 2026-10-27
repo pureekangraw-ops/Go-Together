@@ -1,5 +1,6 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {buildBrainContext} from './brain-context.mjs';
+import {checkReferenceById,auditReferences} from './brain-reference-health.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
 import {createOAuthHandler, verifyAccessToken} from './mcp-oauth.mjs';
@@ -54,7 +55,7 @@ const sortCols=['updated_at','created_at','title','kind','status'];
 async function listing(db,args={}){restrict(args,['kind','status','q','sort','limit']);const clauses=[],params=[];
 let status=args.status||'active';if(status!=='all'){if(!STAT.includes(status))throw new Bad(400,'invalid_status');clauses.push('status=?');params.push(status);}
 if(args.kind){if(typeof args.kind!=='string')throw new Bad(400,'invalid_kind');clauses.push('kind=?');params.push(args.kind);}
-if(args.q){if(typeof args.q!=='string'||args.q.length>200)throw new Bad(400,'invalid_query');clauses.push('(title LIKE ? OR content LIKE ? OR work_id LIKE ? OR tags LIKE ? OR outcome LIKE ?)');params.push(...Array(5).fill('%'+args.q+'%'));}
+if(args.q){if(typeof args.q!=='string'||args.q.length>48)throw new Bad(400,'invalid_query_like_length');clauses.push('(title LIKE ? OR content LIKE ? OR work_id LIKE ? OR tags LIKE ? OR outcome LIKE ?)');params.push(...Array(5).fill('%'+args.q+'%'));}
 const col=sortCols.includes(args.sort)?args.sort:'updated_at',max=Math.min(200,Math.max(1,Number(args.limit)||100));
 const sql='SELECT * FROM memories'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY '+col+(col==='title'?' ASC':' DESC')+', id DESC LIMIT ?';
 const r=await db.prepare(sql).bind(...params,max).all();return (r.results||[]).map(memory);}
@@ -80,6 +81,17 @@ if(p==='/api/context'&&m==='GET'){
  return reply(buildBrainContext(await search(d,url.searchParams.get('q')||'',Math.min(50,Math.max(20,limit*4))),{mode,limit}));
 }
 
+if(p==='/api/references/check'&&m==='GET'){
+ const id=url.searchParams.get('id')||'';
+ try{return reply(await checkReferenceById(d,id));}
+ catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
+}
+if(p==='/api/references/audit'&&m==='GET'){
+ const n=url.searchParams.get('limit');
+ const limit=n===null?3:Number(n);
+ try{return reply(await auditReferences(d,limit));}
+ catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
+}
 if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
 const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status))?$/.exec(p);
 if(!hit)return error(404,'not_found');const key=hit[1],action=hit[2];
@@ -146,6 +158,8 @@ export const tools=[
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_summarize',description:'Return extractive source-linked excerpts only; GO synthesizes conclusions.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'brain_context',description:'Read bounded source-linked GO Brain context for work continuity (operational) or RCA/learning review (evolution). Neither mode performs AI reasoning, tool execution, training, source verification or writes.',inputSchema:SCHEMA({query:Q,mode:{type:'string',enum:['operational','evolution','all']},limit:{type:'integer',minimum:1,maximum:15}},['query']),annotations:{readOnlyHint:true}},
+{name:'brain_reference_check',description:'Read-only HTTP status check for exactly one stored evidence_url by memory ID; never follows redirects or claims private content access.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
+{name:'brain_reference_audit',description:'Read-only on-demand spot-check of up to five recent stored evidence_url links; no recurring crawl, no memory writes.',inputSchema:SCHEMA({limit:{type:'integer',minimum:1,maximum:5}}),annotations:{readOnlyHint:true}},
 
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
@@ -199,6 +213,16 @@ if(name==='brain_edit'){restrict(a,['id','expected_revision',...EDIT]);const {id
 if(name==='brain_set_status'){restrict(a,['id','status','expected_revision']);if(!Number.isInteger(a.expected_revision))throw new Bad(400,'expected_revision_required');return edit(d,a.id,{status:a.status},a.expected_revision);}
 if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)};}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
+if(name==='brain_reference_check'){
+ restrict(a,['id']);
+ try{return await checkReferenceById(d,a.id);}
+ catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
+}
+if(name==='brain_reference_audit'){
+ restrict(a,['limit']);
+ try{return await auditReferences(d,a.limit??3);}
+ catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
+}
 if(name==='brain_context'){
  restrict(a,['query','mode','limit']);
  const mode=a.mode??'operational',limit=a.limit??10;

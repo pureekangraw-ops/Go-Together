@@ -181,6 +181,78 @@ export async function factoryDirectReadback(env,{receiptId}={}){
       deliveryAuthorized:x.jobStamp?.status==='PASS'};
   }catch{return failure('DIRECT_FACTORY_UNAVAILABLE');}
 }
+
+// Read-only final delivery of the already executed VISUAL / LOGIC job.
+// This is called by the existing job-status route after the Factory Receipt
+// has independently passed its domain/source/deadline verification.
+// Never submit or restart an effect while reconciling an uncertain result.
+async function completedMachineDelivery(env,back) {
+  if(!back?.ok||back.verified!==true||back.jobStatus!=='COMPLETED'||
+     !RECEIPT.test(back.receiptId||'')||!JOB.test(back.jobId||''))
+    return {status:'NOT_VERIFIED',deliveredBytes:false};
+  const refs=Array.isArray(back.artifactRefs)?back.artifactRefs:[];
+  if(back.domain==='LOGIC') {
+    const operation=back.workshopResult;
+    if(operation) {
+      if(operation.status!=='PASS')return {status:'LOGIC_RESULT_UNVERIFIED',deliveredBytes:false};
+      if(operation.operation!=='EXPORT_PACKAGE')
+        return {status:'LOGIC_RESULT_READY',workshopResult:operation,deliveredBytes:false};
+      const ref=operation.output?.ref;
+      if(typeof ref!=='string'||!refs.includes(ref)||
+         !/^r2:\/\/factory\/records\/logic\/workshop\/v1\/content\/[a-f0-9]{64}$/.test(ref))
+        return {status:'LOGIC_PACKAGE_REF_UNVERIFIED',deliveredBytes:false};
+      const file=await factoryDirectArtifact(env,{receiptId:back.receiptId,artifactRef:ref});
+      if(!file.ok||file.mime!=='application/json')
+        return {status:'LOGIC_PACKAGE_BYTES_UNVERIFIED',deliveredBytes:false};
+      return {status:'LOGIC_PACKAGE_READY',artifactRef:ref,
+        artifact:{mime:file.mime,bytes:file.bytes,sha256:file.sha256,base64:file.base64},
+        deliveredBytes:true};
+    }
+    return {status:'LOGIC_TRAINING_PLACED',deliveredBytes:false};
+  }
+  if(back.domain!=='VISUAL')return null;
+  const pngs=refs.filter(ref=>typeof ref==='string'&&
+    ref.startsWith('r2://factory/edge-results/')&&ref.endsWith('/render.png'));
+  const splits=refs.filter(ref=>typeof ref==='string'&&
+    ref.startsWith('r2://factory/edge-results/')&&ref.endsWith('/split-manifest.json'));
+  if(pngs.length+splits.length!==1)
+    return {status:'VISUAL_RESULT_REF_UNVERIFIED',deliveredBytes:false};
+  const ref=pngs[0]||splits[0];
+  const file=await factoryDirectArtifact(env,{receiptId:back.receiptId,artifactRef:ref});
+  if(!file.ok)return {status:'VISUAL_RESULT_BYTES_UNVERIFIED',deliveredBytes:false};
+  if(pngs.length) {
+    if(file.mime!=='image/png')return {status:'VISUAL_RESULT_MIME_UNVERIFIED',deliveredBytes:false};
+    return {status:'VISUAL_PNG_READY',artifactRef:ref,
+      artifact:{mime:file.mime,bytes:file.bytes,sha256:file.sha256,base64:file.base64},
+      deliveredBytes:true};
+  }
+  if(file.mime!=='application/json')return {status:'VISUAL_MANIFEST_MIME_UNVERIFIED',deliveredBytes:false};
+  let manifest;
+  try{manifest=JSON.parse(atob(file.base64));}
+  catch{return {status:'VISUAL_MANIFEST_UNVERIFIED',deliveredBytes:false};}
+  if(manifest?.schema!=='FACTORY_VISUAL_SPLIT_MANIFEST_V1'||
+     !Number.isInteger(manifest.count)||manifest.count<1||manifest.count>12||
+     !Array.isArray(manifest.files)||manifest.files.length!==manifest.count||
+     typeof manifest.zipRef!=='string'||!refs.includes(manifest.zipRef)||
+     !/^[a-f0-9]{64}$/.test(manifest.zipSha256||'')||
+     !Number.isSafeInteger(manifest.archiveBytes)||manifest.archiveBytes<1||
+     manifest.files.some(x=>!object(x)||typeof x.ref!=='string'||!refs.includes(x.ref)||
+       !/^[a-f0-9]{64}$/.test(x.sha256||'')))
+    return {status:'VISUAL_MANIFEST_UNVERIFIED',deliveredBytes:false};
+  return {status:'VISUAL_IMAGE_PACK_READY',manifestRef:ref,
+    manifestSha256:file.sha256,files:manifest.files,zipRef:manifest.zipRef,
+    zipSha256:manifest.zipSha256,zipBytes:manifest.archiveBytes,
+    deliveredBytes:false,readOnly:true};
+}
+async function withMachineDelivery(env,readback) {
+  if(readback?.ok&&readback.verified===true&&readback.jobStatus==='COMPLETED'&&
+     ['VISUAL','LOGIC'].includes(readback.domain)) {
+    try{return {...readback,delivery:await completedMachineDelivery(env,readback)};}
+    catch{return {...readback,delivery:{status:'DELIVERY_READ_UNAVAILABLE',deliveredBytes:false}};}
+  }
+  return readback;
+}
+
 export async function factoryDirectJobStatus(env,{requestId}={}){
   if(!UUID.test(requestId||''))return failure('GO_REQUEST_ID_INVALID');
   if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId});
@@ -207,7 +279,7 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
       if(!back.ok||back.jobId!==x.jobId||back.sourceSha!==meta.sourceSha||
         Date.parse(back.observedAt||'')!==x.receiptObservedAt||
         back.jobStatus!==x.status||(x.status==='COMPLETED'&&back.domain!=='VISUAL'))return uncertain();
-      return {...back,...meta,settledAt:x.settledAt,receiptObservedAt:x.receiptObservedAt,requestId,status:'GO_JOB_STATUS_READ'};
+      return withMachineDelivery(env,{...back,...meta,settledAt:x.settledAt,receiptObservedAt:x.receiptObservedAt,requestId,status:'GO_JOB_STATUS_READ'});
     }
     const rid=r.data.receiptId;
     if(!RECEIPT.test(rid||''))return failure('GO_JOB_STATUS_UNCERTAIN',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
@@ -217,7 +289,7 @@ export async function factoryDirectJobStatus(env,{requestId}={}){
     const receipt=await factoryDirectReadback(env,{receiptId:rid});
     if(!receipt.ok||receipt.jobId!==r.data.jobId)
       return {...pending,status:'GO_JOB_READBACK_UNVERIFIED',ok:false};
-    return {...receipt,requestId,status:'GO_JOB_STATUS_READ'};
+    return withMachineDelivery(env,{...receipt,requestId,status:'GO_JOB_STATUS_READ'});
   }catch{return failure('GO_JOB_STATUS_UNAVAILABLE',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false});}
 }
 // Read one existing stamped GO receipt. It cannot trigger a job or deliver bytes.

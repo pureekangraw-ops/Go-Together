@@ -2,8 +2,15 @@
 
 Stage: Zone 2 integrated source implementation. No new Worker, Queue, Hub, secret or provider. Do not claim the new GO action is deployed until separately verified on the V52 production runtime.
 
-## One owner command
-factory_code_run_to_github accepts requestId, approved=true, codeSpec, repo, baseSha, filePath.
+## One original owner command (no parallel submit route)
+
+Use the existing GO MCP tool **factory_direct_submit**, not a second submit tool.
+
+- For CODE -> GitHub: factory_direct_submit({domain:'CODE',spec:{baseSource,patch,tests},requestId,approved:true,githubDelivery:{repo,baseSha,filePath}})
+- For normal CODE, VISUAL, LOGIC and PROOF: call factory_direct_submit with the original domain/spec and no githubDelivery. This keeps the original dispatch behavior.
+- The pre-existing receipt-only GitHub delivery helper remains an explicit continuation/recovery utility. It must not re-execute the Factory job.
+
+This consolidates all new job admission on one command and one existing GO -> Factory signed route.
 
 1. Invoke the existing signed Factory CODE machine once using the exact request ID and bounded baseSource + patch + 1-8 assertions. Return UNKNOWN and forbid retry if the execution was uncertain.
 2. On GO_FACTORY_DELIVERABLE_READY, independently read the Factory Receipt and its main.js artifact, check origin and SHA256. Never trust submitted inline code as an output.
@@ -26,3 +33,7 @@ factory_code_run_to_github accepts requestId, approved=true, codeSpec, repo, bas
 - A full unattended production release needs a separately scoped release authorization plus real merge/deploy provider integration and independent Cloudflare readback, without creating a duplicate orchestrator.
 
 Source-stage completion is not runtime acceptance.
+
+## 2026-10-27 owner architecture correction
+
+Owner requested: trace the original existing job line and replace the unfinished intermediary rather than install a parallel command. The single-entrypoint Source candidate now augments the already registered `factory_direct_submit` with an optional CODE-only GitHub destination; all existing domains remain unchanged without that option. No new GO Hub/Worker/release-controller is created. It is a source change only until exact GO V52 production rollout is independently authorized and verified. Do not merge stale earlier PR41 as a second route.

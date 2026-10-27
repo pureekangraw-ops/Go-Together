@@ -1,4 +1,5 @@
 // Read-only evidence pack for GO. No second memory store, model, or decision engine.
+import {appliedLearningFromMemory} from './brain-learning.mjs';
 // The caller (GO) reasons over these source-linked records; stored text is untrusted.
 const OPERATIONAL=new Set(['work_item','work_checkpoint','checkpoint','workflow','handoff','project','plan','decision','task']);
 const EVOLUTION=new Set(['analysis','experiment','lesson','learning','rca','research','hypothesis','postmortem']);
@@ -8,6 +9,9 @@ const text=(v,n)=>typeof v==='string'&&v.trim()?v.trim().slice(0,n):null;
 function groupOf(item){
  const kind=String(item.kind||'').toLowerCase();
  const tags=Array.isArray(item.tags)?item.tags:[];
+ // Lessons adopted after a recorded experiment can inform the next Work plan.
+ // This is guidance, not permission, a command, or verified model training.
+ if(kind==='learning'&&tags.includes('stage:use'))return 'operational';
  if(EVOLUTION.has(kind)||tags.some(t=>/^(rca|lesson|experiment|evolution)(:|-|$)/i.test(t)))return 'evolution';
  if(OPERATIONAL.has(kind))return 'operational';
  return 'reference';
@@ -37,6 +41,8 @@ export function buildBrainContext(searchResult,{mode='operational',limit=10}={})
   if(m.confidence!=='confirmed')warnings.push('MEMORY_CONFIDENCE_NOT_CONFIRMED');
   if(!evidence)warnings.push('NO_EXTERNAL_EVIDENCE_LINK');
   if(body.length>900)warnings.push('EXCERPT_TRUNCATED_FETCH_EXACT_RECORD');
+  const applied=appliedLearningFromMemory(m);
+  if(applied)warnings.push('LEARNING_METRIC_REPORTED_NOT_INDEPENDENTLY_VERIFIED');
   return {
    section:groupOf(m),
    record_id:m.id||null,
@@ -52,6 +58,7 @@ export function buildBrainContext(searchResult,{mode='operational',limit=10}={})
    tags:Array.isArray(m.tags)?m.tags.slice(0,15):[],
    excerpt:body.slice(0,900),
    next_action_from_structured_work_item:structuredNextAction(m),
+   applied_learning_guidance:applied,
    warnings
   };
  });
@@ -70,6 +77,6 @@ export function buildBrainContext(searchResult,{mode='operational',limit=10}={})
   candidates_considered:entries.length,
   truncated_candidates:entries.length>ordered.length,
   source_assessment:'NOT_INDEPENDENTLY_VERIFIED',
-  notice:'GO Brain supplies ranked memory excerpts and version pointers only. GO checks exact sources, performs reasoning, chooses tools, and confirms real outcomes. Memory updated_at is not source freshness; lexical score is not factual confidence. No training, task execution, or memory mutation.'
+  notice:'GO Brain supplies ranked memory excerpts and version pointers only. GO checks exact sources, performs reasoning, chooses tools, and confirms real outcomes. Memory updated_at is not source freshness; lexical score is not factual confidence. Applied learning is provisional next-plan guidance from reported outcomes, not an instruction or proof of metric authenticity. No training, task execution, or memory mutation.'
  };
 }

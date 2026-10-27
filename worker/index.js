@@ -142,6 +142,8 @@ const GO_FACTORY_PROOF_TOOLKIT=SCHEMA({
   payload:{type:'object',maxProperties:12}
 },['mode','action','payload']);
 const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,GO_FACTORY_PROOF_TOOLKIT,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+// Optional CODE destination on the existing Factory submit route; not a new runner.
+const GO_CODE_GITHUB_DESTINATION=SCHEMA({repo:Q,baseSha:Q,filePath:Q},['repo','baseSha','filePath']);
 
 const OBS_ACTION=SCHEMA({type:{type:'string',enum:['navigate','back','forward','reload','scroll','click','type']},url:Q,selector:Q,value:Q,y:{type:'number'}},['type']);
 const OBS_TOOLS=[
@@ -180,9 +182,9 @@ export const tools=[
 {name:'factory_job_stamp_status',description:'Read only one GO-owned Job Stamp central evaluation and delivery eligibility by signed Factory receipt. Never executes a machine or claims recipient acceptance.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_status',description:'Read Factory machinery registration through private GO->Factory Binding. No execution.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_auth_probe',description:'Verify GO/Factory mutual HMAC using a fresh nonce on the private Service Binding, without issuing any Factory Job, reading secrets or invoking machinery. Returns sanitized authentication state only.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
-{name:'factory_direct_submit',description:'GO owner-authorized direct Factory job. Choose supported CODE (single bounded Worker JavaScript patch + 1-8 assertions), VISUAL (static card PNG or owner-approved image cutout pack), or LOGIC trainee placement / bounded Workshop command; provide the work specification, not a Work Pass. Factory generates Job ID, executes and returns real Receipt and artifact bytes. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
+{name:'factory_direct_submit',description:'Existing GO owner-authorized Factory job for CODE, VISUAL, LOGIC and PROOF. For CODE only, optional githubDelivery sends the verified completed receipt and bytes through Hub V2 to a reviewable GitHub PR and starts existing PR CI. No duplicate Factory execution, no automatic merge or production deploy. requestId optional to reconcile/replay exactly.',inputSchema:SCHEMA({
   domain:{type:'string',enum:['CODE','VISUAL','LOGIC','PROOF']},spec:GO_FACTORY_SPEC,
-  requestId:Q,approved:{type:'boolean',const:true}
+  requestId:Q,githubDelivery:GO_CODE_GITHUB_DESTINATION,approved:{type:'boolean',const:true}
 },['domain','spec','approved']),annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},
 {name:'factory_visual_upload',description:'Upload owner-approved PNG sheet through signed GO to Factory R2. Returns immutable sourceRef and independent status readback, not finished assets.',inputSchema:SCHEMA({
  pngBase64:{type:'string',minLength:80,maxLength:5592408},
@@ -200,7 +202,6 @@ export const tools=[
 {name:'factory_direct_readback',description:'Read one Factory-owned GO job receipt by receiptId; no Work Pass and no machine execution.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_artifact',description:'Return receipt-bound CODE JS/VISUAL PNG or Workshop package JSON bytes with verified transport/content SHA-256.',inputSchema:SCHEMA({receiptId:Q,artifactRef:Q},['receiptId','artifactRef']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_code_deliver_github',description:'Create a GitHub work branch, exact CODE source file and review PR only from a verified existing GO-owned Factory CODE receipt. No rerun, merge or deployment; uncertain effects require read-only reconciliation.',inputSchema:SCHEMA({receiptId:Q,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['receiptId','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
-{name:'factory_code_run_to_github',description:'One owner-approved bounded Factory CODE execution followed by independently verified receipt and GitHub work branch/commit/readback/review PR. Existing GitHub PR CI runs separately; this does not merge or deploy. Preserve the request ID when an effect is uncertain.',inputSchema:SCHEMA({codeSpec:GO_FACTORY_CODE,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['codeSpec','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 ];
 
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
@@ -214,8 +215,16 @@ if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJo
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_submit'){
- restrict(a,['domain','spec','requestId','approved']);
+ restrict(a,['domain','spec','requestId','approved','githubDelivery']);
  if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');
+ if(a.githubDelivery!==undefined){
+  if(a.domain!=='CODE')throw new Bad(400,'github_delivery_requires_code_domain');
+  const destination=a.githubDelivery;
+  restrict(destination,['repo','baseSha','filePath']);
+  return runFactoryCodeToGithub(env,{requestId:a.requestId,codeSpec:a.spec,
+   repo:destination.repo,baseSha:destination.baseSha,
+   filePath:destination.filePath,approved:true});
+ }
  return factoryDirectSubmit(env,{domain:a.domain,spec:a.spec,requestId:a.requestId},true);
 }
 if(name==='factory_visual_upload'){restrict(a,['pngBase64','sha256','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryVisualUpload(env,{pngBase64:a.pngBase64,sha256:a.sha256,requestId:a.requestId},true);}
@@ -226,7 +235,6 @@ if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryD
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
 if(name==='factory_code_deliver_github'){restrict(a,['receiptId','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return deliverFactoryCodeToGithub(env,a);}
-if(name==='factory_code_run_to_github'){restrict(a,['codeSpec','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return runFactoryCodeToGithub(env,a);}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

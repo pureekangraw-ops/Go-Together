@@ -39,3 +39,5 @@ jobs:
         run: |
           node scripts/assert-current-routing.mjs
           node scripts/assert-approval-assets.mjs
+      - name: Dry-run GO Worker plus static assets (no credentials or upload)
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc --dry-run --outdir "$RUNNER_TEMP/go-wrangler-dry-run"

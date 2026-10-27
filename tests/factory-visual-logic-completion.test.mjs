@@ -111,7 +111,7 @@ test('VISUAL pending and uncertain states never read final artifact or restart m
  for(const status of ['IN_PROGRESS','ACCEPTED']){
    const f=fixture({jobStatus:status,files:{[ref]:{bytes:Buffer.from('PNG'),mime:'image/png'}}});
    const x=await factoryDirectJobStatus(f.env,{requestId:REQUEST});
-   assert.equal(x.jobStatus,'IN_PROGRESS'===status?'IN_PROGRESS':'UNKNOWN');
+   assert.equal(x.jobStatus,status);
    assert.equal(x.delivery,undefined);
    assert.equal(f.paths.includes('/station/go-artifact'),false);
    assert.equal(f.paths.includes('/station/go-job'),false);

@@ -92,14 +92,15 @@ test('cross-source identity mismatch cannot be reported as a verified release',a
  assert.equal(out.ok,false);
  assert.equal(out.reason,'FACTORY_GITHUB_IDENTITY_MISMATCH');
 });
-test('existing Factory submit exposes optional CODE Github destination, no duplicate public submit tool',()=>{
- const tool=registeredTools.find(x=>x.name==='factory_direct_submit');
+test('Factory proposal tool preserves CODE handoff schema but cannot directly execute',()=>{
+ const tool=registeredTools.find(x=>x.name==='factory_direct_propose');
  assert.ok(tool);
- assert.deepEqual(tool.inputSchema.required,['domain','spec','approved']);
- assert.equal(tool.inputSchema.properties.approved.const,true);
+ assert.deepEqual(tool.inputSchema.required,['domain','spec','requestId']);
  assert.equal(tool.annotations.readOnlyHint,false);
+ assert.equal(tool.annotations.destructiveHint,false);
  assert.deepEqual(tool.inputSchema.properties.githubDelivery.required,['repo','baseSha','filePath']);
- assert.equal(registeredTools.filter(x=>x.name==='factory_direct_submit').length,1);
+ assert.equal(registeredTools.filter(x=>x.name==='factory_direct_propose').length,1);
+ assert.equal(registeredTools.some(x=>x.name==='factory_direct_submit'),false);
  assert.equal(registeredTools.some(x=>x.name==='factory_code_run_to_github'),false);
  const spec=JSON.stringify(tool.inputSchema.properties.spec);
  assert.ok(spec.includes('CATALOG') && spec.includes('RECEIPT_CHECK') &&

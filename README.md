@@ -27,6 +27,10 @@ Apply `migrations/0001_brain_direct_oauth.sql` before deploying. It adds only re
 
 MCP tools: `brain_search`, `brain_retrieve`, `brain_list`, `brain_save`, `brain_edit`, `brain_set_status`, `brain_history`, and `brain_summarize`.
 
+## Factory owner approval
+
+Factory jobs are staged as immutable proposals and run only after an owner click in the GO dashboard. See [the approval workflow](docs/factory-owner-approval-flow.md) for audit, notification, and rollout boundaries.
+
 ## Storage & safety
 
 `schema.sql` captures owned D1 tables, indexes, and audit triggers. Never connect the `picxie` database here. No WorkID is issued by this service; optional `work_id` is a pointer to the original Work System record.

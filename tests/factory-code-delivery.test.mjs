@@ -26,19 +26,20 @@ function fixture(override={}){
      calls.push({name,payload});
      if(override.fail===name)return {ok:false,status:'UPSTREAM_TOOL_ERROR'};
      if(name==='github_repo')return result({full_name:request.repo,default_branch:'main'});
-     if(name==='github_branch')return result({ref:'refs/heads/code/jobs/'+JOB,object:{sha:BASE}});
-     if(name==='github_put_file')return result({commit:{sha:COMMIT},content:{sha:BLOB}});
+     if(name==='github_branch')return {ok:true,upstream_status:201,
+       branch:'refs/heads/code/jobs/'+JOB,commitSha:BASE};
+     if(name==='github_put_file')return {ok:true,upstream_status:201,
+       commitSha:COMMIT,contentSha:BLOB};
      if(name==='github_file')return result({type:'file',sha:BLOB,encoding:'base64',
        content:(override.badReadback?'cGFydGlhbA==':bytes.toString('base64'))});
-     if(name==='github_open_pr')return result({number:91,
-       head:{ref:'code/jobs/'+JOB,sha:COMMIT},base:{ref:'main'},
-       html_url:'https://github.com/pureekangraw-ops/Factory-District/pull/91'});
+     if(name==='github_open_pr')return {ok:true,upstream_status:201,
+       prNumber:91,prUrl:'https://github.com/pureekangraw-ops/Factory-District/pull/91'};
      throw Error('unexpected tool '+name);
    }
  };
  return {calls,deps};
 }
-test('verified Factory CODE receipt becomes exact GitHub bytes and a review PR; never deploys',async()=>{
+test('real Hub V2 flattened GitHub write receipts produce exact PR after file readback; never deploy',async()=>{
  const f=fixture(),out=await deliverFactoryCodeToGithub({},request,f.deps);
  assert.equal(out.ok,true);assert.equal(out.status,'PR_OPENED');
  assert.equal(out.artifactSha256,digest);assert.equal(out.commitSha,COMMIT);

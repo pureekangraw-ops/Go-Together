@@ -12,9 +12,11 @@ const fail=(reason,phase='PREFLIGHT')=>({ok:false,status:'UNKNOWN',reason,phase,
 const sha256=async bytes=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))]
   .map(v=>v.toString(16).padStart(2,'0')).join('');
 function response(result) {
-  return result?.ok===true && result?.upstream_status>=200 &&
-    result.upstream_status<300 && result.body && typeof result.body==='object'
-    ?result.body:null;
+  if(result?.ok!==true||!Number.isInteger(result.upstream_status)||
+     result.upstream_status<200||result.upstream_status>=300)return null;
+  // Read providers return REST body; Hub V2 GitHub write tools instead
+  // return normalized top-level commitSha/contentSha/branch/prNumber/prUrl.
+  return result.body&&typeof result.body==='object'?result.body:result;
 }
 export async function deliverFactoryCodeToGithub(env,input={},deps={}){
  const read=deps.readback||factoryDirectReadback;
@@ -73,19 +75,21 @@ export async function deliverFactoryCodeToGithub(env,input={},deps={}){
  }
  // Never reuse an uncertain side effect with a new request ID.
  const created=await effect('github_branch',{repo,branch,from_sha:baseSha},'branch');
- if(created?.ref!=='refs/heads/'+branch||created?.object?.sha!==baseSha)
+ if((created?.ref??created?.branch)!=='refs/heads/'+branch||
+    (created?.object?.sha??created?.commitSha)!==baseSha)
    return {...fail('GITHUB_BRANCH_UNVERIFIED_NO_REPLAY','BRANCH'),branch};
  const committed=await effect('github_put_file',{
    repo,branch,path:filePath,content,
    message:'code('+receipt.jobId+'): deliver verified Factory CODE output'
  },'commit');
- const commitSha=committed?.commit?.sha;
- if(!SHA40.test(commitSha||'')||!SHA40.test(committed?.content?.sha||''))
+ const commitSha=committed?.commit?.sha??committed?.commitSha;
+ const contentSha=committed?.content?.sha??committed?.contentSha;
+ if(!SHA40.test(commitSha||'')||!SHA40.test(contentSha||''))
    return {...fail('GITHUB_COMMIT_UNVERIFIED_NO_REPLAY','COMMIT'),branch};
  let saved;
  try{saved=response(await hub(env,'github_file',{repo,path:filePath,ref:branch}));}
  catch{return {...fail('GITHUB_FILE_READBACK_UNAVAILABLE','READBACK'),branch,commitSha};}
- if(saved?.type!=='file'||saved?.sha!==committed.content.sha||
+ if(saved?.type!=='file'||saved?.sha!==contentSha||
     typeof saved.content!=='string'||saved.encoding!=='base64')
    return {...fail('GITHUB_FILE_READBACK_MISMATCH','READBACK'),branch,commitSha};
  try{
@@ -101,12 +105,15 @@ export async function deliverFactoryCodeToGithub(env,input={},deps={}){
      '\nGitHub commit: '+commitSha+
      '\n\nVerified bytes were delivered for review. Not merged or deployed.'
  },'pr');
- if(!Number.isInteger(pr?.number)||pr?.head?.ref!==branch||
-    pr.head.sha!==commitSha||pr?.base?.ref!==base||
-    typeof pr.html_url!=='string')
+ const prNumber=pr?.number??pr?.prNumber;
+ const prUrl=pr?.html_url??pr?.prUrl;
+ const exactUrl='https://github.com/'+repo+'/pull/'+prNumber;
+ const richMatches=pr?.head?pr.head.ref===branch&&
+   pr.head.sha===commitSha&&pr?.base?.ref===base:true;
+ if(!Number.isInteger(prNumber)||prNumber<1||prUrl!==exactUrl||!richMatches)
    return {...fail('GITHUB_PR_UNVERIFIED_NO_REPLAY','PR'),branch,commitSha};
  return {ok:true,status:'PR_OPENED',jobId:receipt.jobId,receiptId,sourceSha:receipt.sourceSha,
    artifactRef,artifactSha256:file.sha256,repo,branch,commitSha,filePath,
-   prNumber:pr.number,prUrl:pr.html_url,delivered:true,merged:false,deployed:false,
+   prNumber,prUrl,delivered:true,merged:false,deployed:false,
    applicationAccepted:false};
 }

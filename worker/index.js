@@ -1,5 +1,5 @@
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
-import {deliverFactoryCodeToGithub} from './factory-code-delivery.mjs';
+import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
 import {buildBrainContext} from './brain-context.mjs';
 import {PROVIDER_TOOLS} from './provider-catalog.mjs';
 import {goviewDirect,isGoviewTool} from './goview-direct.mjs';
@@ -186,6 +186,7 @@ export const tools=[
 {name:'factory_direct_readback',description:'Read one Factory-owned GO job receipt by receiptId; no Work Pass and no machine execution.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_artifact',description:'Return receipt-bound CODE JS/VISUAL PNG or Workshop package JSON bytes with verified transport/content SHA-256.',inputSchema:SCHEMA({receiptId:Q,artifactRef:Q},['receiptId','artifactRef']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_code_deliver_github',description:'Create a GitHub work branch, exact CODE source file and review PR only from a verified existing GO-owned Factory CODE receipt. No rerun, merge or deployment; uncertain effects require read-only reconciliation.',inputSchema:SCHEMA({receiptId:Q,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['receiptId','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
+{name:'factory_code_run_to_github',description:'One owner-approved bounded Factory CODE execution followed by independently verified receipt and GitHub work branch/commit/readback/review PR. Existing GitHub PR CI runs separately; this does not merge or deploy. Preserve the request ID when an effect is uncertain.',inputSchema:SCHEMA({codeSpec:GO_FACTORY_CODE,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['codeSpec','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 ];
 
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
@@ -211,6 +212,7 @@ if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryD
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
 if(name==='factory_code_deliver_github'){restrict(a,['receiptId','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return deliverFactoryCodeToGithub(env,a);}
+if(name==='factory_code_run_to_github'){restrict(a,['codeSpec','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return runFactoryCodeToGithub(env,a);}
 if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

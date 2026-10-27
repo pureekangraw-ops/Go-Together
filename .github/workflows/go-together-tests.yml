@@ -6,13 +6,20 @@ on:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'scripts/**'
+      - 'static/**'
+      - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
+      - '.github/workflows/go-manual-assets-deploy.yml'
   pull_request:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'scripts/**'
+      - 'static/**'
       - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
+      - '.github/workflows/go-manual-assets-deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,3 +35,7 @@ jobs:
           node-version: '24'
       - name: Verify owner-only Access and MCP compatibility
         run: node --test --test-isolation=none tests/*.test.mjs
+      - name: Verify current routing and Factory approvals assets
+        run: |
+          node scripts/assert-current-routing.mjs
+          node scripts/assert-approval-assets.mjs

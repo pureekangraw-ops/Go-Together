@@ -1,3 +1,4 @@
+import {goCiAcceptance} from './release-ci.mjs';
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
 import {buildBrainContext} from './brain-context.mjs';
@@ -191,6 +192,7 @@ const OBS_TOOLS=[
 const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
 const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 export const tools=[
+ {name:'release_control',description:'Plan, start, recover status or explicitly roll back one owner-authorized pinned GO/Hub release. Never repeat start after timeout; use status with the same requestId. No arbitrary targets or credentials.',inputSchema:SCHEMA({action:{type:'string',enum:['plan','start','status','rollback']},releaseId:{type:'string',maxLength:60},requestId:{type:'string',pattern:'^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$'},goSha:{type:'string',pattern:'^[a-f0-9]{40}$'},hubSha:{type:'string',pattern:'^[a-f0-9]{40}$'},authorization:{type:'string',maxLength:80}},['action']),annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true}},
  ...Object.values(PROVIDER_TOOLS).flat(),
  {name:'hub_connections',description:'Read Hub V2 catalog and current provider connectivity through the Hub. No PANTHEON dependency.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
@@ -241,6 +243,7 @@ export const tools=[
 
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
+if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
 if(!local&&hubGroup(name))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
@@ -411,6 +414,11 @@ async function owner(req,env,ctx){
  return signedAccessOwner(req,env);
 }
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
+if(p==='/_release/acceptance'){
+ if(req.method!=='POST'||!/^Bearer [A-Za-z0-9_.-]{1,16000}$/.test(req.headers.get('authorization')||''))return error(403,'RELEASE_CI_UNAUTHORIZED');
+ try{const payload=await body(req,true,2048);return reply(await goCiAcceptance({authorization:req.headers.get('authorization'),body:payload},env));}
+ catch{return error(403,'RELEASE_CI_ACCEPTANCE_DENIED');}
+}
 if(p.startsWith('/oauth/')||p.startsWith('/.well-known/oauth-'))return createOAuthHandler(brainOAuthConfig(env))(req);
 if(p==='/api/health'){const v=await env.DB.prepare('SELECT 1 AS healthy').first();return reply({ok:v?.healthy===1,app:'GO-Together Personal Brain',storage:'Cloudflare D1',binding:'DB',memory_api_enabled:true,authentication:env.BRAIN_AUTH_MODE==='DIRECT'?'direct-cimd-pkce':'owner-only',source_sha:SOURCE_SHA},v?.healthy===1?200:503);}
 if(p==='/auth/login')return (await owner(req,env,ctx))?Response.redirect(ORIGIN+'/',303):error(401,'owner_auth_required');

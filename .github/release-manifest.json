@@ -1,0 +1,15 @@
+{
+  "releaseId": "owner-recovery-20261028",
+  "goSha": "c7ab6e4bf5b4a42b77c272b39d6f6057086f8c15",
+  "hubSha": "309b54caaba92e7c8a25e729107a2d7a8d74e3a2",
+  "goVersion": "45c62178-6991-4ed9-a35c-314eca1e98fa",
+  "hubVersion": "9f631634-e9dd-4682-bf10-ccafe3d79819",
+  "controllerReviewed": false,
+  "recovery": null,
+  "bootstrap": true,
+  "hubInfrastructureSha": "fa08389d72997860af123489bfdb7124b45b29fa",
+  "bootstrapSources": {
+    "goSha": "5f8f99cb1debcf2cb5677645357be1491153c332",
+    "hubSha": "dbfbdd715018722355041da50dcdb68188d9d485"
+  }
+}

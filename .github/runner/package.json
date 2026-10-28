@@ -1,0 +1,8 @@
+{
+  "name": "go-hub-release-runner",
+  "private": true,
+  "engines": {"node": ">=24"},
+  "scripts": {"postinstall":"node patch-wrangler.cjs","check":"node patch-wrangler.cjs --verify"},
+  "dependencies": {"wrangler":"4.152.0","undici":"7.30.1"},
+  "overrides": {"miniflare":{"undici":"7.30.1"}}
+}

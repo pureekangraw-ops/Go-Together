@@ -5,7 +5,12 @@
   "goVersion": "45c62178-6991-4ed9-a35c-314eca1e98fa",
   "hubVersion": "9f631634-e9dd-4682-bf10-ccafe3d79819",
   "controllerReviewed": true,
-  "recovery": null,
+  "recovery": {
+    "assetId": 684561581,
+    "sha256": "3660fa328a9bcd5b239ba22f6d1d63c9cd9c1a33696245c576a54908dd2ac9f3",
+    "goSha": "5f8f99cb1debcf2cb5677645357be1491153c332",
+    "hubSha": "dbfbdd715018722355041da50dcdb68188d9d485"
+  },
   "bootstrap": true,
   "hubInfrastructureSha": "fa08389d72997860af123489bfdb7124b45b29fa",
   "bootstrapSources": {

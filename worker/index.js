@@ -1,3 +1,4 @@
+import {REPOSITORY_JOB_SCHEMA,dispatchRepositoryJob,readRepositoryJob} from './factory-repository-job.mjs';
 import {goCiAcceptance} from './release-ci.mjs';
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
@@ -90,7 +91,9 @@ if(approvalRoute){
   if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
   const args=await body(req);restrict(args,['payloadSha256']);
   const result=await approveFactoryApproval(d,{id:approvalId,payloadSha256:args.payloadSha256,actor:env.OWNER_EMAIL,
-   dispatch:payload=>payload.githubDelivery
+   dispatch:payload=>payload.spec?.repositoryJob
+    ?dispatchRepositoryJob(env,payload)
+    :payload.githubDelivery
     ?runFactoryCodeToGithub(env,{requestId:payload.requestId,codeSpec:payload.spec,
       repo:payload.githubDelivery.repo,baseSha:payload.githubDelivery.baseSha,
       filePath:payload.githubDelivery.filePath,approved:true})
@@ -106,7 +109,7 @@ if(approvalRoute){
   if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
   const args=await body(req,true);restrict(args,[]);
   return reply({approval:await reconcileFactoryApproval(d,{id:approvalId,
-   statusReader:requestId=>factoryDirectJobStatus(env,{requestId})})});
+   statusReader:(requestId,payload)=>payload.spec?.repositoryJob?readRepositoryJob(env,payload):factoryDirectJobStatus(env,{requestId})})});
  }
  return error(405,'method_not_allowed');
 }
@@ -175,7 +178,7 @@ const GO_FACTORY_PROOF_TOOLKIT=SCHEMA({
     'COMPARE','RCA','REPORT']},
   payload:{type:'object',maxProperties:12}
 },['mode','action','payload']);
-const GO_FACTORY_SPEC={oneOf:[GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,GO_FACTORY_PROOF_TOOLKIT,SCHEMA({workshop:{type:"object"}},["workshop"])]};
+const GO_FACTORY_SPEC={oneOf:[SCHEMA({repositoryJob:REPOSITORY_JOB_SCHEMA},['repositoryJob']),GO_FACTORY_CODE,GO_FACTORY_VISUAL,GO_FACTORY_SPLIT,GO_FACTORY_LOGIC,GO_FACTORY_PROOF_CATALOG,GO_FACTORY_PROOF_CHECK,GO_FACTORY_PROOF_TOOLKIT,SCHEMA({workshop:{type:"object"}},["workshop"])]};
 // Optional CODE destination on the existing Factory submit route; not a new runner.
 const GO_CODE_GITHUB_DESTINATION=SCHEMA({repo:Q,baseSha:Q,filePath:Q},['repo','baseSha','filePath']);
 
@@ -193,7 +196,7 @@ const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},ver
 const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 export const tools=[
  {name:'release_control',description:'Plan, start, recover status or explicitly roll back one owner-authorized pinned GO/Hub release. Never repeat start after timeout; use status with the same requestId. No arbitrary targets or credentials.',inputSchema:SCHEMA({action:{type:'string',enum:['plan','start','status','rollback']},releaseId:{type:'string',maxLength:60},requestId:{type:'string',pattern:'^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$'},goSha:{type:'string',pattern:'^[a-f0-9]{40}$'},hubSha:{type:'string',pattern:'^[a-f0-9]{40}$'},authorization:{type:'string',maxLength:80}},['action']),annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true}},
- ...Object.values(PROVIDER_TOOLS).flat(),
+ ...Object.values(PROVIDER_TOOLS).flat().filter(t=>!t.name.startsWith('github_code_job_')),
  {name:'hub_connections',description:'Read Hub V2 catalog and current provider connectivity through the Hub. No PANTHEON dependency.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
  {name:'goview_publish',description:'Publish owner-requested GO map package and verify exact remote bytes. Does not apply on Android. Preserve returned transfer ID/version/full SHA for Android preview; on uncertain outcome read exact version before retry.',inputSchema:SCHEMA({...GOVIEW_IDENTITY,package:{type:'string',maxLength:1048832}},[...GOVIEW_REQUIRED,'package'])},
@@ -244,6 +247,7 @@ export const tools=[
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
+if(name.startsWith('github_code_job_'))throw new Bad(403,'OWNER_APPROVAL_ROUTE_REQUIRED');
 if(!local&&hubGroup(name))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
@@ -446,4 +450,5 @@ export async function appMcp(req,env){
  }
  return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'method_not_found'}});
 }
+
 

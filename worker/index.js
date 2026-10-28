@@ -1,3 +1,4 @@
+import {goCiAcceptance} from './release-ci.mjs';
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
 import {deliverFactoryCodeToGithub,runFactoryCodeToGithub} from './factory-code-delivery.mjs';
 import {buildBrainContext} from './brain-context.mjs';
@@ -415,7 +416,7 @@ async function owner(req,env,ctx){
 export default {async fetch(req,env,ctx){try{const url=new URL(req.url),p=url.pathname;
 if(p==='/_release/acceptance'){
  if(req.method!=='POST'||!/^Bearer [A-Za-z0-9_.-]{1,16000}$/.test(req.headers.get('authorization')||''))return error(403,'RELEASE_CI_UNAUTHORIZED');
- try{const payload=await body(req,true,2048);if(!env.HUB_V2?.ciAcceptance)return error(503,'RELEASE_CI_NOT_INSTALLED');return reply(await env.HUB_V2.ciAcceptance({authorization:req.headers.get('authorization'),body:payload}));}
+ try{const payload=await body(req,true,2048);return reply(await goCiAcceptance({authorization:req.headers.get('authorization'),body:payload},env));}
  catch{return error(403,'RELEASE_CI_ACCEPTANCE_DENIED');}
 }
 if(p.startsWith('/oauth/')||p.startsWith('/.well-known/oauth-'))return createOAuthHandler(brainOAuthConfig(env))(req);

@@ -1,3 +1,5 @@
+Superseded by `2026-10-28-sustainable-release-route.md` after owner direction to simplify the route.
+
 # Paired release control implementation plan
 
 **Goal:** Owner-authenticated ordinary-chat release plan/start/status/rollback using existing GO, Hub, D1 delivery receipts and CI.

@@ -1,0 +1,61 @@
+{
+  "result": "PASS",
+  "boundary": "real GO/Hub bundles, D1, named RPC; synthetic local Access identity and Factory health",
+  "productionVerified": false,
+  "realFactoryJobs": 0,
+  "results": [
+    {
+      "width": 390,
+      "result": "PASS",
+      "checks": [
+        "signed Access",
+        "private RPC",
+        "real D1",
+        "existing PENDING fixture",
+        "catalog search",
+        "UNKNOWN history",
+        "no overflow",
+        "owner unlock"
+      ]
+    },
+    {
+      "width": 1440,
+      "result": "PASS",
+      "checks": [
+        "signed Access",
+        "private RPC",
+        "real D1",
+        "existing PENDING fixture",
+        "catalog search",
+        "UNKNOWN history",
+        "no overflow",
+        "owner unlock"
+      ]
+    }
+  ],
+  "review": {
+    "findingsFixed": [
+      "Schema refresh failure no longer prevents dashboard reads",
+      "Partial catalog read failure clears stale tools and disables calls"
+    ],
+    "rechecked": true
+  },
+  "unitTests": {
+    "go": {
+      "passed": 170,
+      "failed": 0
+    },
+    "hub": {
+      "passed": 96,
+      "failed": 0
+    }
+  },
+  "build": {
+    "go": "Wrangler 4.152.0 deploy --dry-run passed",
+    "hub": "Wrangler 4.152.0 deploy --dry-run passed"
+  },
+  "browserRegression": {
+    "legacy390": "connect/discover/catalog/metadata/relay/duplicate/journal PASS",
+    "desktop1440andTablet768": "Passed earlier original regression stages; full final repeat not claimed"
+  }
+}

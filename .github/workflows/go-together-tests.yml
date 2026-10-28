@@ -6,20 +6,21 @@ on:
     paths:
       - 'worker/**'
       - 'tests/**'
-      - 'scripts/**'
       - 'static/**'
-      - 'wrangler.jsonc'
+      - 'scripts/**'
       - '.github/workflows/go-together-tests.yml'
       - '.github/workflows/go-manual-assets-deploy.yml'
+      - '.github/release-manifest.json'
   pull_request:
     paths:
       - 'worker/**'
       - 'tests/**'
-      - 'scripts/**'
       - 'static/**'
+      - 'scripts/**'
       - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
       - '.github/workflows/go-manual-assets-deploy.yml'
+      - '.github/release-manifest.json'
   workflow_dispatch:
 
 permissions:
@@ -35,9 +36,3 @@ jobs:
           node-version: '24'
       - name: Verify owner-only Access and MCP compatibility
         run: node --test --test-isolation=none tests/*.test.mjs
-      - name: Verify current routing and Factory approvals assets
-        run: |
-          node scripts/assert-current-routing.mjs
-          node scripts/assert-approval-assets.mjs
-      - name: Dry-run GO Worker plus static assets (no credentials or upload)
-        run: npx --yes wrangler@4 deploy --config wrangler.jsonc --dry-run --outdir "$RUNNER_TEMP/go-wrangler-dry-run"

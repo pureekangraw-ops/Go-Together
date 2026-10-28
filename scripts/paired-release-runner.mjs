@@ -15,6 +15,8 @@ const canonical=v=>v===null||typeof v!=='object'?JSON.stringify(v):Array.isArray
 const hash=v=>createHash('sha256').update(canonical(v)).digest('hex');
 const die=code=>{throw Error(code);};
 export function inputs(e=process.env){
+ // The readback contract accepts only the first run; refuse reruns before any effect.
+ if(e.GITHUB_RUN_ATTEMPT!==undefined&&e.GITHUB_RUN_ATTEMPT!=='1')die('RELEASE_RERUN_REFUSED');
  const v={action:e.RELEASE_ACTION,releaseId:e.RELEASE_ID,requestId:e.RELEASE_REQUEST_ID,goSha:e.RELEASE_GO_SHA,hubSha:e.RELEASE_HUB_SHA,goVersion:e.RELEASE_GO_BASELINE,hubVersion:e.RELEASE_HUB_BASELINE};
  if(!['prepare','start','rollback'].includes(v.action)||!/^[-a-z0-9]{1,60}$/.test(v.releaseId||'')||!uuid.test(v.requestId||'')||!sha.test(v.goSha||'')||!sha.test(v.hubSha||'')||!uuid.test(v.goVersion||'')||!uuid.test(v.hubVersion||'')||e.RELEASE_CONFIRM!==(v.action==='prepare'?'PREPARE ':v.action==='start'?'DEPLOY ':'ROLLBACK ')+v.releaseId)die('INVALID_RELEASE_INPUTS');
  return v;
@@ -227,4 +229,4 @@ async function main(stage){
  die('UNKNOWN_RUNNER_STAGE');
 }
 const dirnameOfConfig=file=>resolve(file,'..');
-if(process.argv[1]===fileURLToPath(import.meta.url))main(process.argv[2]).catch(e=>{const code=/^[A-Z_0-9]+$/.test(e.message)?e.message:'RELEASE_RUNNER_FAILED';console.error(code);try{writeReceipt({...readReceipt(),status:'UNKNOWN',code});}catch{}process.exitCode=1;});
+if(process.argv[1]===fileURLToPath(import.meta.url))main(process.argv[2]).catch(e=>{const code=/^[A-Z_0-9]+$/.test(e.message)?e.message:'RELEASE_RUNNER_FAILED';console.error(code);if(code!=='RELEASE_RERUN_REFUSED')try{writeReceipt({...readReceipt(),status:'UNKNOWN',code});}catch{}process.exitCode=1;});

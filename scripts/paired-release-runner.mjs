@@ -1,5 +1,5 @@
 // Trusted CI orchestration only. No tokens, response bodies or binding values enter artifacts/logs.
-import {readFileSync,writeFileSync,mkdirSync,mkdtempSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,readdirSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
@@ -107,9 +107,9 @@ async function boundedBytes(response,max=32*1024*1024){
  const reader=response.body?.getReader();if(!reader)die('PROVIDER_EMPTY_RESPONSE');const chunks=[];let bytes=0;
  try{for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>max)die('PROVIDER_RESPONSE_TOO_LARGE');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}return Buffer.concat(chunks);
 }
-async function github(pathname,{method='GET',body,raw=false,upload=false}={}){
+export async function github(pathname,{method='GET',body,raw=false,upload=false}={}){
  const token=process.env.GITHUB_TOKEN;if(!token)die('MISSING_GITHUB_RUNNER_TOKEN');
- const r=await fetch((upload?'https://uploads.github.com':'https://api.github.com')+'/repos/'+repo+pathname,{method,headers:{authorization:'Bearer '+token,accept:raw?'application/octet-stream':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'GO-Release-Runner',...(body!==undefined?{'content-type':raw?'application/json':'application/json'}:{})},body:body===undefined?undefined:raw?body:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(20000)});
+ const r=await fetch((upload?'https://uploads.github.com':'https://api.github.com')+'/repos/'+repo+pathname,{method,headers:{authorization:'Bearer '+token,accept:raw?'application/octet-stream':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'GO-Release-Runner',...(body!==undefined?{'content-type':upload?'application/octet-stream':'application/json'}:{})},body:body===undefined?undefined:raw?body:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(20000)});
  if(raw&&method==='GET'&&r.status===302){const to=new URL(r.headers.get('location')||'https://invalid.invalid');await r.body?.cancel();if(to.protocol!=='https:'||!['release-assets.githubusercontent.com','objects.githubusercontent.com'].includes(to.hostname)||to.username||to.password)die('ARTIFACT_REDIRECT_REFUSED');const downloaded=await fetch(to,{redirect:'error',signal:AbortSignal.timeout(20000)});if(!downloaded.ok)die('ARTIFACT_DOWNLOAD_FAILED');return boundedBytes(downloaded);}
  if(!r.ok){await r.body?.cancel();die((method==='GET'?'GITHUB_HTTP_':'GITHUB_MUTATION_UNKNOWN_HTTP_')+r.status);}
  const bytes=await boundedBytes(r);return raw&&method==='GET'?bytes:JSON.parse(bytes);
@@ -150,16 +150,34 @@ async function publishBundle(v,bytes,digest){
  const asset=await github('/releases/'+created.id+'/assets?name=go-hub-bundle.json',{method:'POST',raw:true,upload:true,body:bytes});
  if(!Number.isSafeInteger(asset.id)||asset.state!=='uploaded')die('ARTIFACT_PUBLICATION_UNKNOWN');return {releaseId:created.id,assetId:asset.id,sha256:digest,sources:payload.sources,controllerAbi:payload.controllerAbi,runtimeVerified:false};
 }
-async function fetchHub(v){
+export async function fetchHub(v){
+ // GitLab archive API returned HTTP 406 on a real protected runner. Git-over-HTTPS
+ // is GitLab's supported repository transport. Keep one fixed remote and exact commit.
  if(!process.env.GITLAB_SOURCE_TOKEN)die('MISSING_GITLAB_SOURCE_TOKEN');
- const commit=await api('/projects/'+project+'/repository/commits/'+v.hubSha,{gitlab:true});if(commit.id!==v.hubSha)die('HUB_SOURCE_MISMATCH');
- const r=await fetch('https://gitlab.com/api/v4/projects/'+project+'/repository/archive.tar.gz?sha='+v.hubSha,{headers:{'private-token':process.env.GITLAB_SOURCE_TOKEN},redirect:'error',signal:AbortSignal.timeout(20000)});if(!r.ok)die('HUB_SOURCE_HTTP_'+r.status);
- const bytes=await boundedBytes(r,20*1024*1024),archive=join(mkdtempSync(join(tmpdir(),'go-hub-source-')),'source.tgz');writeFileSync(archive,bytes);
- const names=execFileSync('tar',['-tzf',archive],{encoding:'utf8',maxBuffer:1024*1024}).trim().split('\n');
- const roots=new Set();for(const name of names){if(!/^[A-Za-z0-9_.@/-]+$/.test(name)||name.startsWith('/')||name.split('/').includes('..'))die('HUB_ARCHIVE_PATH_INVALID');roots.add(name.split('/')[0]);}if(roots.size!==1||names.length>2000)die('HUB_ARCHIVE_INVALID');
- const verbose=execFileSync('tar',['-tvzf',archive],{encoding:'utf8',maxBuffer:1024*1024,env:{...process.env,LC_ALL:'C'}}).trim().split('\n');let size=0;for(const line of verbose){if(!['-','d'].includes(line[0]))die('HUB_ARCHIVE_LINK_REFUSED');const count=Number(line.trim().split(/\s+/)[2]);if(!Number.isSafeInteger(count))die('HUB_ARCHIVE_INVALID');size+=count;}if(size>64*1024*1024)die('HUB_ARCHIVE_TOO_LARGE');
- const target=resolve(process.env.RELEASE_HUB_SOURCE_DIR||'sources/hub');mkdirSync(target,{recursive:true});run('tar',['-xzf',archive,'--strip-components=1','--no-same-owner','--no-same-permissions','-C',target]);
- writeFileSync(join(target,'.release-source-sha'),v.hubSha+'\n');console.log('HUB_SOURCE_PINNED '+v.hubSha);
+ const commit=await api('/projects/'+project+'/repository/commits/'+v.hubSha,{gitlab:true});
+ if(commit.id!==v.hubSha)die('HUB_SOURCE_MISMATCH');
+ const target=resolve(process.env.RELEASE_HUB_SOURCE_DIR||'sources/hub');
+ mkdirSync(target,{recursive:true});
+ if(readdirSync(target).length)die('HUB_SOURCE_TARGET_NOT_EMPTY');
+ const helper=join(mkdtempSync(join(tmpdir(),'go-hub-askpass-')),'askpass.sh');
+ // Git asks for a password via a private temporary helper, never via argv/URL/log.
+ writeFileSync(helper,"#!/bin/sh\ncase \"$1\" in\n*Username*) printf 'oauth2\\n' ;;\n*Password*) printf '%s\\n' \"$GITLAB_SOURCE_TOKEN\" ;;\n*) exit 1 ;;\nesac\n",{mode:0o700});
+ const gitEnv={...process.env,GIT_ASKPASS:helper,GIT_TERMINAL_PROMPT:'0',GCM_INTERACTIVE:'never'};
+ const git=args=>{
+  try{return execFileSync('git',args,{env:gitEnv,encoding:'utf8',stdio:['ignore','pipe','pipe'],maxBuffer:1024*1024,timeout:180000}).trim();}
+  catch{die('HUB_GIT_FETCH_FAILED');}
+ };
+ git(['init','-q',target]);
+ git(['-C',target,'remote','add','origin','https://gitlab.com/pureekangraw/hubstation.git']);
+ // Fetch history on the one approved recovery source, then detach at exact SHA.
+ // Do not rely on arbitrary SHA fetch being allowed by every GitLab server.
+ git(['-C',target,'-c','credential.helper=','fetch','-q','--no-tags','origin','refs/heads/recovery/hub-v21-e4d7a9c1']);
+ const found=git(['-C',target,'rev-parse',v.hubSha+'^{commit}']);
+ if(found!==v.hubSha)die('HUB_SOURCE_COMMIT_NOT_REACHABLE');
+ git(['-C',target,'checkout','-q','--detach',v.hubSha]);
+ if(git(['-C',target,'rev-parse','HEAD'])!==v.hubSha)die('HUB_CHECKOUT_SOURCE_MISMATCH');
+ writeFileSync(join(target,'.release-source-sha'),v.hubSha+'\n');
+ console.log('HUB_SOURCE_PINNED '+v.hubSha);
 }
 async function deploy(kind,target,v,expected,tag){
  const worker=kind==='go'?go:hub,before=await snapshot(worker,expected),current=configs()[kind];assertInfrastructurePlan(before.bindings,current);const accessHash=await accessSnapshot();

@@ -1,0 +1,126 @@
+{
+  "observedDate": "2026-10-28 Asia/Bangkok",
+  "go": {
+    "version": 56,
+    "id": "45c62178-6991-4ed9-a35c-314eca1e98fa",
+    "etag": "c687957af8a65207be3768964740183edcb526c2ed0b47739a97475bf69cf0ff",
+    "source": "54b0853",
+    "moduleParity": "15 of 15 runtime source modules matched SHA-256",
+    "modules": [
+      {
+        "name": "brain-context.mjs",
+        "sha256": "0bcf93f0d8bf184b1fd036c37bef962173a4cfe058b18ab77ccb4ddcc41cfbee"
+      },
+      {
+        "name": "brain-reference-health.mjs",
+        "sha256": "60d58da7d751d0c4f663f9b3c5faa5239fa0e4d62b8ca95079033eae55b64b33"
+      },
+      {
+        "name": "factory-approvals.mjs",
+        "sha256": "b44e39f6248aaecaa98c65b590212b352d3c9fe9e9a945e18d5fc4804c7680b2"
+      },
+      {
+        "name": "factory-code-delivery.mjs",
+        "sha256": "90c57208d4cc20ece45ea6ea58cd71682513710377783c74785ab8f4a7d5f7b5"
+      },
+      {
+        "name": "factory-direct.mjs",
+        "sha256": "a330c16e849ad1c47cb34e49c0bbcb15b08d9565a719e15d0bb348b204a34783"
+      },
+      {
+        "name": "factory-temp.mjs",
+        "sha256": "b85d09d784a1810822bca07cdae984795f27c17a57bb8724ad9a71cb77cbcb8c"
+      },
+      {
+        "name": "goview-direct.mjs",
+        "sha256": "6b4188e8d00468ff71ecb93a65665a08fcf31b868da3c4c0be8b811816e665fe"
+      },
+      {
+        "name": "hub-client.mjs",
+        "sha256": "1fcea1dbdd12d593c29dff9733bf740354c5e9a224b2faff95581e1914f6046c"
+      },
+      {
+        "name": "hub-entry.mjs",
+        "sha256": "f5aed5d60babc0fe30aff3b87b24b61c5bc128076b8e0678e369733a448668b9"
+      },
+      {
+        "name": "index.js",
+        "sha256": "692328abb7e816cf926c1a6aceb63331a09af8874f08e13954e93eb359f4f9e6"
+      },
+      {
+        "name": "mcp-oauth.mjs",
+        "sha256": "968198b5289d99500db087625bf64e832c8474832c1f0fa8af339ab18b0d343b"
+      },
+      {
+        "name": "oauth-ledger.mjs",
+        "sha256": "464c388e3c33b5a7fb88c9cd30a77cc078ee85d0cb3a5b1318f4ad09fa71e4e2"
+      },
+      {
+        "name": "observatory-direct.mjs",
+        "sha256": "d835287ce7e3e10f938edf44c4256ac1a1db36f545f9bc6367373560f1b45bf6"
+      },
+      {
+        "name": "provider-catalog.mjs",
+        "sha256": "6ec5b1fb31f90b2f21d44f14ae160f05ee83c2939a31ad2e7579ce9db4f35f02"
+      },
+      {
+        "name": "provider-write-catalog.mjs",
+        "sha256": "c27fb58929e0a82ea79e0519142734f12b0dc5b390c099fa73fa1ae0d0c23709"
+      }
+    ]
+  },
+  "hub": {
+    "version": 21,
+    "id": "9f631634-e9dd-4682-bf10-ccafe3d79819",
+    "source": "e4d7a9c1898f62858cde5bdb957fdc6c8612b111",
+    "defaultHandlers": [
+      "fetch"
+    ],
+    "HubBridge": [
+      "connections",
+      "refresh",
+      "catalog",
+      "relay"
+    ],
+    "bundleParity": {
+      "method": "Normalize generated dependency-location comment prefixes and trailing newlines only; all executable text identical",
+      "normalizedSha256": "b581f1fb8df40d5dd586796c15f2c8edfb48ac3461fdbafcf25eba527d64540c",
+      "matched": true
+    }
+  },
+  "bindings": {
+    "HUB_V2": {
+      "service": "ygg-connection-hub-v2",
+      "entrypoint": "HubBridge"
+    },
+    "OBSERVATORY_GO": {
+      "service": "observatory-shared-browser",
+      "observedEntrypoint": null,
+      "requiredEntrypoint": "ObservatoryGoBridge",
+      "receiverConfirmed": true
+    },
+    "GOVIEW_GO": {
+      "service": "goview-package-bridge",
+      "observedEntrypoint": null,
+      "requiredEntrypoint": "GoviewGoBridge",
+      "receiverConfirmed": true
+    }
+  },
+  "proposal": {
+    "id": "187e2e08-52f6-4cf6-afec-5baa663446d1",
+    "requestId": "8e4a56a9-9144-4c40-a848-e8ae8830ae41",
+    "status": "PENDING",
+    "verification": "D1 SELECT only, rows_written=0"
+  },
+  "access": {
+    "goProtectedPaths": [
+      "/auth/*",
+      "/api/*"
+    ],
+    "goSession": "24h",
+    "hubProtectedOrigin": true,
+    "hubSession": "1h",
+    "audiencesMatchRuntime": true
+  },
+  "productionMutations": 0
+}

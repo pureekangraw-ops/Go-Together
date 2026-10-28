@@ -109,7 +109,7 @@ async function boundedBytes(response,max=32*1024*1024){
 }
 export async function github(pathname,{method='GET',body,raw=false,upload=false}={}){
  const token=process.env.GITHUB_TOKEN;if(!token)die('MISSING_GITHUB_RUNNER_TOKEN');
- const r=await fetch((upload?'https://uploads.github.com':'https://api.github.com')+'/repos/'+repo+pathname,{method,headers:{authorization:'Bearer '+token,accept:raw?'application/octet-stream':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'GO-Release-Runner',...(body!==undefined?{'content-type':upload?'application/octet-stream':'application/json'}:{})},body:body===undefined?undefined:raw?body:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(20000)});
+ const r=await fetch((upload?'https://uploads.github.com':'https://api.github.com')+'/repos/'+repo+pathname,{method,headers:{authorization:'Bearer '+token,accept:raw&&method==='GET'?'application/octet-stream':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'GO-Release-Runner',...(body!==undefined?{'content-type':upload?'application/octet-stream':'application/json'}:{})},body:body===undefined?undefined:upload||raw?body:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(20000)});
  if(raw&&method==='GET'&&r.status===302){const to=new URL(r.headers.get('location')||'https://invalid.invalid');await r.body?.cancel();if(to.protocol!=='https:'||!['release-assets.githubusercontent.com','objects.githubusercontent.com'].includes(to.hostname)||to.username||to.password)die('ARTIFACT_REDIRECT_REFUSED');const downloaded=await fetch(to,{redirect:'error',signal:AbortSignal.timeout(20000)});if(!downloaded.ok)die('ARTIFACT_DOWNLOAD_FAILED');return boundedBytes(downloaded);}
  if(!r.ok){await r.body?.cancel();die((method==='GET'?'GITHUB_HTTP_':'GITHUB_MUTATION_UNKNOWN_HTTP_')+r.status);}
  const bytes=await boundedBytes(r);return raw&&method==='GET'?bytes:JSON.parse(bytes);
@@ -142,13 +142,30 @@ async function approvedRecovery(m){
  if(metadata.digest&&metadata.digest!=='sha256:'+m.recovery.sha256)die('RECOVERY_ASSET_DIGEST_MISMATCH');
  const bytes=await github('/releases/assets/'+m.recovery.assetId,{raw:true});const v=validateBundle(bytes,m.recovery.sha256);if(v.controllerAbi===0&&m.bootstrap!==true)die('LEGACY_RECOVERY_BOOTSTRAP_ONLY');if(v.sources.go!==m.recovery.goSha||v.sources.hub!==m.recovery.hubSha)die('RECOVERY_SOURCE_MISMATCH');return materialize(bytes,m.recovery.sha256);
 }
-async function publishBundle(v,bytes,digest){
+export async function publishBundle(v,bytes,digest,{reuseDraft=null}={}){
  const payload=validateBundle(bytes,digest);if(payload.controllerAbi===0&&!(v.action==='prepare'&&manifest(v,false).bootstrap===true))die('LEGACY_PREPARATION_BOOTSTRAP_ONLY');if(payload.sources.go!==v.goSha||payload.sources.hub!==v.hubSha)die('CANDIDATE_SOURCE_MISMATCH');
  // Draft release assets have no CI retention expiry. Never overwrite an existing release/asset.
- const created=await github('/releases',{method:'POST',body:{tag_name:'go-hub-'+v.releaseId+'-'+v.requestId,target_commitish:process.env.GITHUB_SHA,name:'GO/Hub '+v.releaseId,draft:true,make_latest:'false',body:'Pinned build artifact; production and owner acceptance are recorded separately. SHA-256: '+digest}});
+ let created;
+ if(reuseDraft){
+  if(v.action!=='prepare'||!Number.isSafeInteger(reuseDraft.id)||reuseDraft.id<=0||!sha.test(reuseDraft.targetCommitish||'')||reuseDraft.sha256!==digest)die('PREPARATION_DRAFT_MISMATCH');
+  created=await github('/releases/'+reuseDraft.id);
+  if(created.id!==reuseDraft.id||created.draft!==true||created.tag_name!==reuseDraft.tagName||!created.tag_name.startsWith('go-hub-'+v.releaseId+'-')||created.target_commitish!==reuseDraft.targetCommitish||created.name!=='GO/Hub '+v.releaseId||!created.body?.endsWith('SHA-256: '+digest))die('PREPARATION_DRAFT_MISMATCH');
+ }else created=await github('/releases',{method:'POST',body:{tag_name:'go-hub-'+v.releaseId+'-'+v.requestId,target_commitish:process.env.GITHUB_SHA,name:'GO/Hub '+v.releaseId,draft:true,make_latest:'false',body:'Pinned build artifact; production and owner acceptance are recorded separately. SHA-256: '+digest}});
  if(!Number.isSafeInteger(created.id))die('ARTIFACT_PUBLICATION_UNKNOWN');
- const asset=await github('/releases/'+created.id+'/assets?name=go-hub-bundle.json',{method:'POST',raw:true,upload:true,body:bytes});
- if(!Number.isSafeInteger(asset.id)||asset.state!=='uploaded')die('ARTIFACT_PUBLICATION_UNKNOWN');return {releaseId:created.id,assetId:asset.id,sha256:digest,sources:payload.sources,controllerAbi:payload.controllerAbi,runtimeVerified:false};
+ const uploadPath='/releases/'+created.id+'/assets';
+ if(created.upload_url!=='https://uploads.github.com/repos/'+repo+uploadPath+'{?name,label}')die('ARTIFACT_UPLOAD_URL_MISMATCH');
+ const assets=await github(uploadPath+'?per_page=100');
+ if(!Array.isArray(assets)||assets.length>=100)die('ARTIFACT_LIST_INCOMPLETE');
+ const matches=assets.filter(a=>a.name==='go-hub-bundle.json');
+ if(matches.length>1)die('ARTIFACT_PUBLICATION_UNKNOWN');
+ const asset=matches[0]||await github(uploadPath+'?name=go-hub-bundle.json',{method:'POST',upload:true,body:bytes});
+ if(!Number.isSafeInteger(asset.id)||asset.id<=0)die('ARTIFACT_PUBLICATION_UNKNOWN');
+ const metadata=await github('/releases/assets/'+asset.id);
+ if(metadata.id!==asset.id||metadata.state!=='uploaded'||metadata.name!=='go-hub-bundle.json'||metadata.size!==bytes.length||metadata.digest!=='sha256:'+digest)die('ARTIFACT_READBACK_MISMATCH');
+ const downloaded=await github('/releases/assets/'+asset.id,{raw:true});
+ validateBundle(downloaded,digest);
+ if(!downloaded.equals(bytes))die('ARTIFACT_READBACK_MISMATCH');
+ return {releaseId:created.id,assetId:asset.id,sha256:digest,sources:payload.sources,controllerAbi:payload.controllerAbi,readbackVerified:true,runtimeVerified:false};
 }
 export async function fetchHub(v){
  // GitLab archive API returned HTTP 406 on a real protected runner. Git-over-HTTPS
@@ -234,7 +251,7 @@ async function main(stage){
   if(stage==='deploy'){
    await approvedRecovery(m);const [g,h]=await Promise.all([snapshot(go,v.goVersion),snapshot(hub,v.hubVersion)]);assertInfrastructurePlan(g.bindings,configs().go);assertInfrastructurePlan(h.bindings,configs().hub);
   }
-  writeReceipt({...v,status:'ARTIFACT_PUBLICATION_IN_PROGRESS',candidateDigest:digest});const artifact=await publishBundle(v,bytes,digest);writeReceipt({...v,artifact,status:'PREPARED'});
+  writeReceipt({...v,status:'ARTIFACT_PUBLICATION_IN_PROGRESS',candidateDigest:digest});const artifact=await publishBundle(v,bytes,digest,{reuseDraft:v.action==='prepare'?m.preparationDraft:null});writeReceipt({...v,artifact,status:'PREPARED'});
   if(stage==='publish')return;
   const deployedGo=await deploy('go',candidate.go,v,v.goVersion,v.requestId);writeReceipt({...readReceipt(),go:deployedGo,status:'GO_DEPLOYED'});
   const goAcceptance={...await publicAcceptance(v,join(dirnameOfConfig(candidate.go.config),'static/index.html')),...await privateAcceptance(v,deployedGo.version,'go')};

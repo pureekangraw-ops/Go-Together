@@ -141,11 +141,71 @@ test('GitHub draft release asset sends raw bytes with octet-stream Content-Type'
   globalThis.fetch=async(url,options)=>{
    assert.equal(url,'https://uploads.github.com/repos/pureekangraw-ops/Go-Together/releases/123/assets?name=go-hub-bundle.json');
    assert.equal(options.method,'POST');
+   assert.equal(options.headers.accept,'application/vnd.github+json');
    assert.equal(options.headers['content-type'],'application/octet-stream');
    assert.equal(options.body.toString(),'test bundle bytes');
    return Response.json({id:7,state:'uploaded'});
   };
   const asset=await github('/releases/123/assets?name=go-hub-bundle.json',{method:'POST',upload:true,raw:true,body:Buffer.from('test bundle bytes')});
   assert.equal(asset.id,7);
+ }finally{globalThis.fetch=old;if(token===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=token;}
+});
+
+test('binary download alone requests octet-stream',async()=>{
+ const {github}=await import('../scripts/paired-release-runner.mjs');
+ const old=globalThis.fetch,token=process.env.GITHUB_TOKEN;
+ try{
+  process.env.GITHUB_TOKEN='fixture-token';
+  globalThis.fetch=async(url,options)=>{
+   assert.equal(options.headers.accept,'application/octet-stream');
+   return new Response('bundle bytes');
+  };
+  assert.equal((await github('/releases/assets/7',{raw:true})).toString(),'bundle bytes');
+ }finally{globalThis.fetch=old;if(token===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=token;}
+});
+
+test('prepare reuses pinned draft, uploads once and verifies remote metadata and bytes',async()=>{
+ const {publishBundle}=await import('../scripts/paired-release-runner.mjs');
+ const v={action:'prepare',releaseId:'recovery',requestId:id,goSha:'a'.repeat(40),hubSha:'b'.repeat(40)};
+ const b=createBundle({releaseId:v.releaseId,goSha:v.goSha,hubSha:v.hubSha,files:{
+  'go/runtime.js':Buffer.from('release_control releaseControl ciAcceptance'),
+  'hub/runtime.js':Buffer.from('releaseControl ciAcceptance loadReleaseManifest'),
+  'go/static/index.html':Buffer.from('<html>fixture</html>'),
+  'go/static/manifest.webmanifest':Buffer.from('{}'),
+  'go/static/service-worker.js':Buffer.from('network-only'),
+  'go/static/_headers':Buffer.from('Cache-Control: no-store')
+ }});
+ const pin={id:123,tagName:'go-hub-recovery-old-request',targetCommitish:'c'.repeat(40),sha256:b.sha256};
+ const draft={id:123,draft:true,tag_name:pin.tagName,target_commitish:pin.targetCommitish,name:'GO/Hub recovery',body:'SHA-256: '+b.sha256,upload_url:'https://uploads.github.com/repos/pureekangraw-ops/Go-Together/releases/123/assets{?name,label}'};
+ const metadata={id:7,state:'uploaded',name:'go-hub-bundle.json',size:b.bytes.length,digest:'sha256:'+b.sha256};
+ const old=globalThis.fetch,token=process.env.GITHUB_TOKEN;
+ try{
+  process.env.GITHUB_TOKEN='fixture-token';
+  for(const mode of ['empty','existing','wrong-draft','wrong-digest','wrong-bytes']){
+   const calls=[];
+   globalThis.fetch=async(input,options)=>{
+    const url=new URL(input);calls.push({method:options.method,path:url.pathname,accept:options.headers.accept});
+    assert.notEqual(url.pathname,'/repos/pureekangraw-ops/Go-Together/releases','must never create another release');
+    if(url.pathname.endsWith('/releases/123'))return Response.json({...draft,draft:mode==='wrong-draft'?false:true});
+    if(url.pathname.endsWith('/releases/123/assets')){
+     if(options.method==='GET')return Response.json(mode==='existing'?[metadata]:[]);
+     assert.equal(url.hostname,'uploads.github.com');
+     assert.equal(options.headers.accept,'application/vnd.github+json');
+     assert.equal(options.headers['content-type'],'application/octet-stream');
+     assert.deepEqual(options.body,b.bytes);
+     return Response.json(metadata,{status:201});
+    }
+    assert.ok(url.pathname.endsWith('/releases/assets/7'));
+    if(options.headers.accept==='application/octet-stream')return new Response(mode==='wrong-bytes'?'corrupt':b.bytes);
+    return Response.json({...metadata,digest:mode==='wrong-digest'?'sha256:'+'0'.repeat(64):metadata.digest});
+   };
+   const operation=()=>publishBundle(v,b.bytes,b.sha256,{reuseDraft:pin});
+   if(mode.startsWith('wrong-'))await assert.rejects(operation,/DRAFT_MISMATCH|READBACK_MISMATCH|BUNDLE_DIGEST_MISMATCH/);
+   else{
+    const result=await operation();
+    assert.equal(result.assetId,7);assert.equal(result.releaseId,123);assert.equal(result.sha256,b.sha256);assert.equal(result.readbackVerified,true);assert.equal(result.runtimeVerified,false);
+   }
+   assert.equal(calls.filter(c=>c.method==='POST').length,mode==='empty'||mode==='wrong-digest'||mode==='wrong-bytes'?1:0);
+  }
  }finally{globalThis.fetch=old;if(token===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=token;}
 });

@@ -11,5 +11,11 @@
   "bootstrapSources": {
     "goSha": "5f8f99cb1debcf2cb5677645357be1491153c332",
     "hubSha": "dbfbdd715018722355041da50dcdb68188d9d485"
+  },
+  "preparationDraft": {
+    "id": 426382249,
+    "tagName": "go-hub-owner-recovery-20261028-b074abdd-cc4c-4ca0-97ca-8c3440143fc6",
+    "targetCommitish": "ed1f34b02eb19a946f52bd44d253c7deadee2ac2",
+    "sha256": "3660fa328a9bcd5b239ba22f6d1d63c9cd9c1a33696245c576a54908dd2ac9f3"
   }
 }

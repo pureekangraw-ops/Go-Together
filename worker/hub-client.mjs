@@ -13,7 +13,7 @@ export async function hubTool(env,name,payload){
  if(definition?.annotations?.readOnlyHint===false&&(typeof payload?.requestId!=='string'||!payload.requestId.length||payload.requestId.length>120))throw Error('REQUEST_ID_REQUIRED');
  // Readback polls must observe changing source state, rather than deduplicate
  // forever against the first read of a given job/request ID.
- const polling=['factory_direct_job_status','factory_visual_upload_status'].includes(name);
+ const polling=['factory_direct_job_status','factory_visual_upload_status','github_code_job_readback'].includes(name);
  const retryIdentity=polling?null:(payload?.requestId||(name==='goview_publish'?payload?.transferId:null));
  const messageId=retryIdentity?'go_'+BufferlessHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(name+'\n'+retryIdentity))):crypto.randomUUID();
  // One attempt only. An ambiguous delivery is returned, never retried.
@@ -40,4 +40,5 @@ export async function hubConnections(env){
  }
  return {ok:true,status:'CATALOG_LOADED',source:inventory.source,connectors:inventory.connections,toolCount:inventory.tools,connections};
 }
+
 

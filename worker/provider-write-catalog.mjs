@@ -1,8 +1,12 @@
+import {REPOSITORY_JOB_SCHEMA} from './repository-job-contract.mjs';
 const shape=(p={},r=[])=>({type:'object',properties:p,required:r,additionalProperties:false});
 const str=(max=300)=>({type:'string',minLength:1,maxLength:max});
 const writable=(name,description,p,r)=>({name,description:description+' Reuse requestId to inspect an uncertain delivery; use a new ID only for a new intended operation.',inputSchema:shape({...p,requestId:str(120)},[...r,'requestId']),annotations:{readOnlyHint:false,destructiveHint:false}});
 export const PROVIDER_WRITES={
  github:[
+  {name:'github_code_job_dispatch',description:'Dispatch the existing Factory repository workflow once after owner approval. No merge or deploy.',inputSchema:shape({requestId:{type:'string',format:'uuid'},...REPOSITORY_JOB_SCHEMA.properties},['requestId','baseSha','files']),annotations:{readOnlyHint:false,destructiveHint:false}},
+  {name:'github_code_job_readback',description:'Read the correlated Factory workflow and independently verify every submitted file. Never dispatches.',inputSchema:shape({requestId:{type:'string',format:'uuid'},...REPOSITORY_JOB_SCHEMA.properties},['requestId','baseSha','files']),annotations:{readOnlyHint:true,destructiveHint:false}},
+
   writable('github_branch','Create a work branch from a pinned commit; does not modify main.',{repo:str(),branch:str(120),from_sha:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['repo','branch','from_sha']),
   writable('github_put_file','Create or replace a UTF-8 file on a non-default work branch, with SHA for existing files.',{repo:str(),branch:str(120),path:str(300),content:str(65536),message:str(300),sha:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['repo','branch','path','content','message']),
   writable('github_open_pr','Open a PR from a work branch; does not merge.',{repo:str(),head:str(120),base:str(120),title:str(200),body:{type:'string',maxLength:4000}},['repo','head','base','title'])
@@ -33,3 +37,4 @@ export const PROVIDER_WRITES={
   writable('slack_post_message','Post a message to one explicit channel.',{channel:str(100),text:str(3500)},['channel','text'])
  ]
 };
+

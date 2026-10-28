@@ -86,3 +86,66 @@ test('first run passes manifest and reaches the normal read-only provider prefli
   assert.equal(existsSync(f.receipt),false);
  }finally{f.clean();}
 });
+
+
+test('pinned Hub source uses Git-over-HTTPS, a fixed recovery branch and exact historic SHA',async()=>{
+ const {fetchHub}=await import('../scripts/paired-release-runner.mjs');
+ const root=mkdtempSync(join(tmpdir(),'hub-git-checkout-'));
+ const workspace=join(root,'working'),bare=join(root,'hub.git'),target=join(root,'checked-out');
+ const cmd=(args)=>spawnSync('git',args,{encoding:'utf8',env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null'},timeout:20000});
+ try{
+  mkdirSync(workspace);
+  assert.equal(cmd(['init','-q','-b','recovery/hub-v21-e4d7a9c1',workspace]).status,0);
+  const run=(...args)=>{const r=cmd(['-C',workspace,...args]);assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+  run('config','user.name','test-runner');
+  run('config','user.email','test@example.invalid');
+  writeFileSync(join(workspace,'entry.js'),'approved historical bytes\n');
+  run('add','entry.js');run('commit','-qm','approved');
+  const pinned=run('rev-parse','HEAD');
+  writeFileSync(join(workspace,'entry.js'),'newer unrelated bytes\n');
+  run('add','entry.js');run('commit','-qm','newer');
+  assert.equal(cmd(['clone','--quiet','--bare',workspace,bare]).status,0);
+  const config=join(root,'gitconfig');
+  const cfg=cmd(['config','--file',config,'--add','url.file://'+bare+'.insteadOf','https://gitlab.com/pureekangraw/hubstation.git']);
+  assert.equal(cfg.status,0,cfg.stderr);
+  const original={fetch:globalThis.fetch,token:process.env.GITLAB_SOURCE_TOKEN,dir:process.env.RELEASE_HUB_SOURCE_DIR,config:process.env.GIT_CONFIG_GLOBAL};
+  try{
+   process.env.GITLAB_SOURCE_TOKEN='private-test-token';
+   process.env.RELEASE_HUB_SOURCE_DIR=target;
+   process.env.GIT_CONFIG_GLOBAL=config;
+   globalThis.fetch=async(url,options)=> {
+    assert.equal(new URL(url).pathname,'/api/v4/projects/88036575/repository/commits/'+pinned);
+    assert.equal(options.headers['private-token'],'private-test-token');
+    return Response.json({id:pinned});
+   };
+   await fetchHub({hubSha:pinned});
+   const head=cmd(['-C',target,'rev-parse','HEAD']);
+   assert.equal(head.status,0,head.stderr);
+   assert.equal(head.stdout.trim(),pinned);
+   assert.equal(readFileSync(join(target,'entry.js'),'utf8'),'approved historical bytes\n');
+   assert.equal(readFileSync(join(target,'.release-source-sha'),'utf8'),pinned+'\n');
+   assert.equal(cmd(['-C',target,'config','--get','remote.origin.url']).stdout.trim(),'https://gitlab.com/pureekangraw/hubstation.git');
+  }finally{
+   globalThis.fetch=original.fetch;
+   for(const [name,val] of [['GITLAB_SOURCE_TOKEN',original.token],['RELEASE_HUB_SOURCE_DIR',original.dir],['GIT_CONFIG_GLOBAL',original.config]])
+    if(val===undefined)delete process.env[name];else process.env[name]=val;
+  }
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('GitHub draft release asset sends raw bytes with octet-stream Content-Type',async()=>{
+ const {github}=await import('../scripts/paired-release-runner.mjs');
+ const old=globalThis.fetch,token=process.env.GITHUB_TOKEN;
+ try{
+  process.env.GITHUB_TOKEN='fixture-token';
+  globalThis.fetch=async(url,options)=>{
+   assert.equal(url,'https://uploads.github.com/repos/pureekangraw-ops/Go-Together/releases/123/assets?name=go-hub-bundle.json');
+   assert.equal(options.method,'POST');
+   assert.equal(options.headers['content-type'],'application/octet-stream');
+   assert.equal(options.body.toString(),'test bundle bytes');
+   return Response.json({id:7,state:'uploaded'});
+  };
+  const asset=await github('/releases/123/assets?name=go-hub-bundle.json',{method:'POST',upload:true,raw:true,body:Buffer.from('test bundle bytes')});
+  assert.equal(asset.id,7);
+ }finally{globalThis.fetch=old;if(token===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=token;}
+});

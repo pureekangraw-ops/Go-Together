@@ -8,7 +8,7 @@ self.addEventListener("activate", event => {
 });
 
 self.addEventListener("fetch", event => {
-  const request = event.request;
+  const request = new Request(event.request, { cache: "no-store" });
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
   // Preserve normal Cloudflare Access and Worker behavior; no offline data or queue.

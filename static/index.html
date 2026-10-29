@@ -40,6 +40,7 @@
   <section id="factory-approvals" class="approval-panel panel" aria-label="Factory job approvals">
     <div class="panel-head"><div><h3>คำขออนุมัติ Factory</h3><span class="count" id="approval-count">Loading…</span></div><button type="button" id="approval-refresh">โหลดใหม่</button></div>
     <p class="approval-note">คำขอจะรออยู่ใน GO จนกว่าคุณจะตรวจสอบ payload และ SHA-256 แล้วกด “Approve &amp; run” ด้วยตัวเอง ระบบบันทึกผู้อนุมัติ เวลา และ hash หากไม่ทราบผล (UNKNOWN) ให้ตรวจสอบสถานะเท่านั้น ไม่มีการส่งงานซ้ำอัตโนมัติ</p>
+    <p id="approval-target-note" class="approval-note hidden" role="status" aria-live="polite"></p>
     <div id="approval-list" class="approval-list" aria-live="polite"><div class="empty"><strong>Loading approvals</strong>Connecting to the owner approval inbox…</div></div>
   </section>
   <section class="stats" aria-label="Memory counts">
@@ -137,6 +138,9 @@ $("restore-btn").addEventListener("click",async()=>{if(!selected)return;try{awai
 document.querySelectorAll(".zone").forEach(b=>b.addEventListener("click",()=>setZone(b.dataset.zone)));
 let timer;["search","kind-filter","status-filter"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{clearTimeout(timer);timer=setTimeout(refresh,id==="search"?180:0);}));
 const uncertainApprovals=new Set();
+const requestedApprovalId=new URLSearchParams(location.search).get('approval');
+const validRequestedApprovalId=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedApprovalId||'')?requestedApprovalId:null;
+let approvalTargetFocused=false;
 async function refreshApprovals(){
   try{
     const data=await api('/api/factory-approvals');
@@ -144,6 +148,12 @@ async function refreshApprovals(){
     const pending=rows.filter(x=>x.status==='PENDING').length;
     $("approval-count").textContent=`${pending} pending · ${rows.length} recent`;
     const badge=$("pending-approval-badge");badge.textContent=String(pending);badge.classList.toggle('hidden',pending===0);
+    const targetNote=$("approval-target-note");
+    if(validRequestedApprovalId){
+      const found=rows.some(x=>x.id===validRequestedApprovalId);
+      targetNote.classList.remove('hidden');
+      targetNote.textContent=found?'พบใบอนุมัติที่ระบุแล้ว — ตรวจรายละเอียดด้านล่างก่อนกดอนุมัติ':'ยังไม่พบใบอนุมัติที่ระบุในรายการนี้ กรุณาตรวจบัญชีเจ้าของหรือโหลดใหม่ ห้ามสร้างใบงานซ้ำ';
+    }else targetNote.classList.add('hidden');
     if(!rows.length){$("approval-list").innerHTML='<div class="empty"><strong>No Factory approvals</strong>New proposals from GO will appear here; no job runs before you approve it.</div>';return;}
     $("approval-list").innerHTML=rows.map(x=>{
       const status=esc(String(x.status||'UNKNOWN'));
@@ -158,8 +168,12 @@ async function refreshApprovals(){
       const proof=x.approvedBy?`<div class="meta">Approved by ${esc(x.approvedBy)} · ${esc(new Date(x.approvedAt).toLocaleString())} · payload ${esc(x.approvedPayloadSha256||'')}</div>`:'';
       const rejected=x.rejectedBy?`<div class="meta">Rejected by ${esc(x.rejectedBy)} · ${esc(new Date(x.rejectedAt).toLocaleString())}</div>`:'';
       const result=x.result?`<div class="meta">Latest result: ${esc(x.result.status||x.result.jobStatus||'recorded')} · request ${esc(x.requestId)}</div>`:'';
-      return `<article class="approval-card"><h4>${esc(x.domain)} Factory job <span class="approval-status ${cls}">${status}</span></h4><div class="meta">Proposed ${when} · request ${esc(x.requestId)}</div><details data-review-details="${esc(x.id)}"><summary>Review exact request · SHA-256 ${esc(x.payloadSha256)}</summary><pre>${payload}</pre></details>${proof}${rejected}${result}${uncertain?'<p class="approval-note">ยังไม่ทราบผลคำขอก่อนหน้า ตรวจสอบสถานะเท่านั้น ห้ามอนุมัติซ้ำ</p>':''}<div class="approval-actions">${buttons}</div></article>`;
+      return `<article id="approval-${esc(x.id)}" class="approval-card"><h4>${esc(x.domain)} Factory job <span class="approval-status ${cls}">${status}</span></h4><div class="meta">Proposed ${when} · request ${esc(x.requestId)}</div><details data-review-details="${esc(x.id)}"><summary>Review exact request · SHA-256 ${esc(x.payloadSha256)}</summary><pre>${payload}</pre></details>${proof}${rejected}${result}${uncertain?'<p class="approval-note">ยังไม่ทราบผลคำขอก่อนหน้า ตรวจสอบสถานะเท่านั้น ห้ามอนุมัติซ้ำ</p>':''}<div class="approval-actions">${buttons}</div></article>`;
     }).join('');
+    if(validRequestedApprovalId&&!approvalTargetFocused){
+      const target=document.getElementById('approval-'+validRequestedApprovalId);
+      if(target){approvalTargetFocused=true;target.scrollIntoView({behavior:'smooth',block:'center'});}
+    }
     document.querySelectorAll('[data-review-details]').forEach(d=>d.addEventListener('toggle',()=>{
       const id=d.dataset.reviewDetails,check=document.querySelector(`[data-reviewed=\"${CSS.escape(id)}\"]`),approve=document.querySelector(`[data-approve=\"${CSS.escape(id)}\"]`);
       if(!d.open&&check){check.checked=false;check.disabled=true;if(approve)approve.disabled=true;}
@@ -171,7 +185,12 @@ async function refreshApprovals(){
     document.querySelectorAll('[data-approve]').forEach(b=>b.addEventListener('click',()=>handleApproval(b.dataset.approve,'approve',b.dataset.payloadSha256)));
     document.querySelectorAll('[data-reject]').forEach(b=>b.addEventListener('click',()=>handleApproval(b.dataset.reject,'reject',b.dataset.payloadSha256)));
     document.querySelectorAll('[data-check]').forEach(b=>b.addEventListener('click',()=>checkApprovalStatus(b.dataset.check)));
-  }catch(e){$("approval-count").textContent='ยังเชื่อมต่อไม่ได้';$("approval-list").innerHTML=`<div class="empty"><strong>โหลดคำขออนุมัติไม่ได้</strong>${esc(e.message)}</div>`;}
+  }catch(e){
+    if(validRequestedApprovalId){
+      $("approval-target-note").classList.remove('hidden');
+      $("approval-target-note").textContent='ไม่สามารถอ่านใบอนุมัติที่ระบุได้ โปรดตรวจ Owner Login และโหลดใหม่ อย่าส่งงานซ้ำ';
+    }
+    $("approval-count").textContent='ยังเชื่อมต่อไม่ได้';$("approval-list").innerHTML=`<div class="empty"><strong>โหลดคำขออนุมัติไม่ได้</strong>${esc(e.message)}</div>`;}
 }
 async function handleApproval(id,action,payloadSha256){
   if(uncertainApprovals.has(id))return;

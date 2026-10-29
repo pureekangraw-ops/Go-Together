@@ -189,6 +189,18 @@ const OBS_TOOLS=[
 {name:'observatory_job',description:'Read stored background Browser job and progress without executing anything.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
 {name:'observatory_note',description:'Send BIG a brief status note in Observatory (no private page data or credentials).',inputSchema:SCHEMA({message:{type:'string',minLength:1,maxLength:240}},['message'])}
 ];
+const GOVIEW_TRANSFER_ID={type:'string',pattern:'^[a-zA-Z0-9_-]{8,80}$'};
+const GOVIEW_TRANSFER_SHA={type:'string',pattern:'^[a-f0-9]{64}$'};
+const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
+ schema:{type:'string',const:'goview.transfer.v1'},transferId:GOVIEW_TRANSFER_ID,
+ operation:{type:'string',enum:['PROPOSAL','STUDIO']},
+ payloadType:{type:'string',enum:['goview.map-update','goview.map.package.v1']},
+ identity:{oneOf:[
+  SCHEMA({captureId:GOVIEW_TRANSFER_ID,baseVersion:{type:'integer',minimum:0},snapshotSha256:GOVIEW_TRANSFER_SHA},['captureId','baseVersion','snapshotSha256']),
+  SCHEMA({mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999}},['mapId','version'])
+ ]},sha256:GOVIEW_TRANSFER_SHA,payload:{type:'string',maxLength:1048576}
+},['schema','transferId','operation','payloadType','identity','sha256','payload']);
+
 const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
 const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 export const tools=[
@@ -201,6 +213,9 @@ export const tools=[
  {name:'goview_focus_point',description:'Ask the owner GOVIEW map to move its live camera to these coordinates while visible. No GPS read and no map write. Call goview_command_status for device receipt.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude'])},
  {name:'goview_propose_pin',description:'Propose a labelled place coordinate to owner GOVIEW. Device shows owner confirmation; no write until approved. This is an unverified suggested location.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},label:{type:'string',minLength:1,maxLength:140},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude','label'])},
  {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
+ {name:'goview_transfer_read',description:'Read only the explicitly selected typed transfer ID and expected payload SHA-256 from the owner upload receipt. Verify contract and exact bytes; no listing or GPS/history discovery.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID,sha256:GOVIEW_TRANSFER_SHA},['transferId','sha256']),annotations:{readOnlyHint:true}},
+ {name:'goview_transfer_publish',description:'Publish an immutable PROPOSAL bound to an explicit snapshot digest/revision, or a separate Studio package. Never upload SNAPSHOT as GO. Verify exact readback; uncertainty requires exact read before any retry. Download does not apply a map: owner preview and Update remain required.',inputSchema:SCHEMA({envelope:GOVIEW_TRANSFER_ENVELOPE},['envelope'])},
+ {name:'goview_transfer_receipt',description:'Read the device report for one exact transfer ID. Missing means NOT_OBSERVED; a report is not independent physical execution proof. Never replay Update to obtain a receipt.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID},['transferId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},
@@ -244,6 +259,7 @@ export const tools=[
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
+if(['goview_transfer_read','goview_transfer_publish','goview_transfer_receipt'].includes(name))return goviewDirect(env,name,a);
 if(!local&&hubGroup(name))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}

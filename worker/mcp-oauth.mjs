@@ -128,6 +128,7 @@ function validCimdClientId(value, config = {}) {
     const url = new URL(String(value || ''));
     if (url.protocol !== 'https:' || url.port || url.username || url.password || url.search || url.hash) return false;
     
+    if (String(value) === NOTION_CIMD_CLIENT_ID) return true;
     if (url.hostname === 'chatgpt.com') return /^\/oauth\/(?:client\.json|[^/]+\/client\.json)$/.test(url.pathname);
     return false;
   } catch {
@@ -145,7 +146,8 @@ const OBSERVATORY_CIMD_REDIRECT_PATH = '/oauth/observatory-callback';
 function knownCimdClient(config, clientId) {
   // Pin the public client's published callback, as for ChatGPT, so authorization
   // does not depend on provider metadata being reachable from the Worker.
-  const redirectUri = clientId === CHATGPT_CIMD_CLIENT_ID ? CHATGPT_CIMD_REDIRECT_URI : null;
+  const redirectUri = clientId === CHATGPT_CIMD_CLIENT_ID ? CHATGPT_CIMD_REDIRECT_URI
+    : clientId === NOTION_CIMD_CLIENT_ID ? NOTION_CIMD_REDIRECT_URI : null;
   if (!redirectUri) return null;
   return {
     clientId,

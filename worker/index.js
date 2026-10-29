@@ -189,8 +189,6 @@ const OBS_TOOLS=[
 {name:'observatory_job',description:'Read stored background Browser job and progress without executing anything.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
 {name:'observatory_note',description:'Send BIG a brief status note in Observatory (no private page data or credentials).',inputSchema:SCHEMA({message:{type:'string',minLength:1,maxLength:240}},['message'])}
 ];
-const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
-const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 const GOVIEW_TRANSFER_ID={type:'string',pattern:'^[a-zA-Z0-9_-]{8,80}$'};
 const GOVIEW_TRANSFER_SHA={type:'string',pattern:'^[a-f0-9]{64}$'};
 const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
@@ -199,22 +197,25 @@ const GOVIEW_TRANSFER_ENVELOPE=SCHEMA({
  payloadType:{type:'string',enum:['goview.map-update','goview.map.package.v1']},
  identity:{oneOf:[
   SCHEMA({captureId:GOVIEW_TRANSFER_ID,baseVersion:{type:'integer',minimum:0},snapshotSha256:GOVIEW_TRANSFER_SHA},['captureId','baseVersion','snapshotSha256']),
-  SCHEMA({mapId:GOVIEW_IDENTITY.mapId,version:{type:'integer',minimum:1,maximum:999999}},['mapId','version'])
+  SCHEMA({mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999}},['mapId','version'])
  ]},sha256:GOVIEW_TRANSFER_SHA,payload:{type:'string',maxLength:1048576}
 },['schema','transferId','operation','payloadType','identity','sha256','payload']);
+
+const GOVIEW_IDENTITY={mapId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,70}$'},version:{type:'integer',minimum:1,maximum:999999},sha256:{type:'string',pattern:'^[a-f0-9]{64}$'},transferId:{type:'string',pattern:'^[a-zA-Z0-9_-]{1,80}$'}};
+const GOVIEW_REQUIRED=['mapId','version','sha256','transferId'];
 export const tools=[
  {name:'release_control',description:'Plan, start, recover status or explicitly roll back one owner-authorized pinned GO/Hub release. Never repeat start after timeout; use status with the same requestId. No arbitrary targets or credentials.',inputSchema:SCHEMA({action:{type:'string',enum:['plan','start','status','rollback']},releaseId:{type:'string',maxLength:60},requestId:{type:'string',pattern:'^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$'},goSha:{type:'string',pattern:'^[a-f0-9]{40}$'},hubSha:{type:'string',pattern:'^[a-f0-9]{40}$'},authorization:{type:'string',maxLength:80}},['action']),annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true}},
  ...Object.values(PROVIDER_TOOLS).flat(),
  {name:'hub_connections',description:'Read Hub V2 catalog and current provider connectivity through the Hub. No PANTHEON dependency.',inputSchema:SCHEMA({}),annotations:{readOnlyHint:true}},
  {name:'hub_refresh',description:'Refresh an explicitly selected Hub V2 connector schema. Does not approve changed schemas or execute a tool.',inputSchema:SCHEMA({connectorId:Q},['connectorId'])},
- {name:'goview_transfer_read',description:'Read only the explicitly selected typed transfer ID and expected payload SHA-256 from the owner upload receipt. Verify contract and exact bytes; no listing or GPS/history discovery.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID,sha256:GOVIEW_TRANSFER_SHA},['transferId','sha256']),annotations:{readOnlyHint:true}},
- {name:'goview_transfer_publish',description:'Publish an immutable PROPOSAL bound to an explicit snapshot digest/revision, or a separate Studio package. Never upload SNAPSHOT as GO. Verify exact readback; uncertainty requires exact read before any retry. Download does not apply a map: owner preview and Update remain required.',inputSchema:SCHEMA({envelope:GOVIEW_TRANSFER_ENVELOPE},['envelope'])},
- {name:'goview_transfer_receipt',description:'Read the device report for one exact transfer ID. Missing means NOT_OBSERVED; a report is not independent physical execution proof. Never replay Update to obtain a receipt.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID},['transferId']),annotations:{readOnlyHint:true}},
  {name:'goview_publish',description:'Publish owner-requested GO map package and verify exact remote bytes. Does not apply on Android. Preserve returned transfer ID/version/full SHA for Android preview; on uncertain outcome read exact version before retry.',inputSchema:SCHEMA({...GOVIEW_IDENTITY,package:{type:'string',maxLength:1048832}},[...GOVIEW_REQUIRED,'package'])},
  {name:'goview_readback',description:'Read explicitly selected remote map artifact by exact version and expected full SHA-256. No listing, GPS/history collection or handset access. Handset receipt must be exported by owner.',inputSchema:SCHEMA(GOVIEW_IDENTITY,GOVIEW_REQUIRED),annotations:{readOnlyHint:true}},
  {name:'goview_focus_point',description:'Ask the owner GOVIEW map to move its live camera to these coordinates while visible. No GPS read and no map write. Call goview_command_status for device receipt.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude'])},
  {name:'goview_propose_pin',description:'Propose a labelled place coordinate to owner GOVIEW. Device shows owner confirmation; no write until approved. This is an unverified suggested location.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},label:{type:'string',minLength:1,maxLength:140},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude','label'])},
  {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
+ {name:'goview_transfer_read',description:'Read only the explicitly selected typed transfer ID and expected payload SHA-256 from the owner upload receipt. Verify contract and exact bytes; no listing or GPS/history discovery.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID,sha256:GOVIEW_TRANSFER_SHA},['transferId','sha256']),annotations:{readOnlyHint:true}},
+ {name:'goview_transfer_publish',description:'Publish an immutable PROPOSAL bound to an explicit snapshot digest/revision, or a separate Studio package. Never upload SNAPSHOT as GO. Verify exact readback; uncertainty requires exact read before any retry. Download does not apply a map: owner preview and Update remain required.',inputSchema:SCHEMA({envelope:GOVIEW_TRANSFER_ENVELOPE},['envelope'])},
+ {name:'goview_transfer_receipt',description:'Read the device report for one exact transfer ID. Missing means NOT_OBSERVED; a report is not independent physical execution proof. Never replay Update to obtain a receipt.',inputSchema:SCHEMA({transferId:GOVIEW_TRANSFER_ID},['transferId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},

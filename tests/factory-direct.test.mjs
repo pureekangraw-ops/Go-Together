@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 import {factoryDirectStatus} from '../worker/factory-direct.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev';
@@ -106,8 +106,8 @@ test('Workshop content tool is discoverable, owner-only and explicitly approved 
   const tools=(await list.json()).result.tools;
   const content=tools.find(x=>x.name==='factory_workshop_content');assert.ok(content);
   assert.equal(content.annotations.readOnlyHint,false);
-  const submit=tools.find(x=>x.name==='factory_direct_submit');
-  assert.ok(submit.inputSchema.properties.spec.oneOf.some(x=>x.properties.workshop));
+  const propose=tools.find(x=>x.name==='factory_direct_propose');
+  assert.ok(propose.inputSchema.properties.spec.oneOf.some(x=>x.properties.workshop));
   let calls=0;const env={...baseEnv,FACTORY_DIRECT:mockBinding(async()=>{calls++;throw Error('UNEXPECTED');})};
   assert.equal((await mcp(env,'factory_workshop_content',{content:{synthetic:true},approved:true},{})).status,401);
   const denied=await mcp(env,'factory_workshop_content',{content:{synthetic:true}});
@@ -116,3 +116,5 @@ test('Workshop content tool is discoverable, owner-only and explicitly approved 
   assert.match(JSON.stringify(await extra.json()),/unknown_field:token/);
   assert.equal(calls,0);
 });
+
+

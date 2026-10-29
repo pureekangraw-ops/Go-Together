@@ -1,0 +1,35 @@
+{
+  "route": "one-protected-github-runner",
+  "goTests": 197,
+  "hubTests": 115,
+  "providerBoundaryLifecycleTests": "SIMULATED_REMOTE_BOUNDARIES_REAL_RUNNER",
+  "workflowSyntax": "ACTIONLINT_PASS",
+  "pinnedRemediatedWrangler": "4.152.0",
+  "sourceDryRunBuilds": {
+    "go": "PASS",
+    "hub": "PASS"
+  },
+  "materializedCurrentInfrastructureDryRuns": {
+    "go": "PASS",
+    "hub": "PASS"
+  },
+  "liveBindingStructuralComparison": {
+    "go": "COMPATIBLE",
+    "hub": "COMPATIBLE"
+  },
+  "privateHubPayload": "NOT_UPLOADED_TO_PUBLIC_ACTIONS_ARTIFACTS",
+  "bootstrapFallback": {
+    "controllerAbi": 0,
+    "goSource": "5f8f99cb1debcf2cb5677645357be1491153c332",
+    "hubSource": "dbfbdd715018722355041da50dcdb68188d9d485",
+    "goTests": 170,
+    "hubTests": 96,
+    "sha256": "b75bc87c85cd3f2428dd16a3c39f061c4d177e0167579be83b4fc8921b0afd89",
+    "remoteAsset": "NOT_UPLOADED_HTTP_401_STOPPED",
+    "emptyDraft": "REMOVED_AFTER_FAILED_UPLOAD"
+  },
+  "productionDeployment": "NOT_EXECUTED",
+  "freshOrdinaryChat": "NOT_VERIFIED",
+  "ownerBrowser": "NOT_VERIFIED",
+  "runnerCommissioning": "PENDING"
+}

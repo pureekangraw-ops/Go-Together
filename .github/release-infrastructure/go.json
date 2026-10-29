@@ -1,0 +1,56 @@
+{
+  "name": "go-together",
+  "compatibility_date": "2026-10-06",
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "BRAIN_AUTH_MODE": "DIRECT",
+    "ACCESS_AUD": "6b7b2007c1ae1b5e9215681bc94fd1b41edf3c6d4c87d3afebda01afd69c2dc8",
+    "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com",
+    "OWNER_EMAIL": "pureekangraw@gmail.com"
+  },
+  "assets": {
+    "directory": "./payload/static",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*",
+      "/mcp",
+      "/.well-known/*",
+      "/auth/*",
+      "/oauth/*",
+      "/_release/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "go-together",
+      "database_id": "b236c05f-e07f-498b-a9d5-ccefe8be5f22"
+    }
+  ],
+  "services": [
+    {
+      "binding": "FACTORY_DIRECT",
+      "service": "factory-district"
+    },
+    {
+      "binding": "OBSERVATORY_GO",
+      "service": "observatory-shared-browser",
+      "entrypoint": "ObservatoryGoBridge"
+    },
+    {
+      "binding": "GOVIEW_GO",
+      "service": "goview-package-bridge",
+      "entrypoint": "GoviewGoBridge"
+    },
+    {
+      "binding": "HUB_V2",
+      "service": "ygg-connection-hub-v2",
+      "entrypoint": "HubBridge"
+    }
+  ]
+}

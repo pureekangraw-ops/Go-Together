@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker/index.js';
+import worker from './hub-fixture.mjs';
 import {goviewDirect} from '../worker/goview-direct.mjs';
 const owner={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
 const base={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com'};
@@ -23,3 +23,5 @@ test('caller boundary rejects missing and coerced identity without invoking bind
   assert.equal((await goviewDirect(env,'goview_readback',args)).status,'INVALID_ARTIFACT_IDENTITY');
  assert.equal(calls,0);
 });
+
+

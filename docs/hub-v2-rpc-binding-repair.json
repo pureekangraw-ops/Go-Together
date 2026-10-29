@@ -1,0 +1,10 @@
+{
+  "worker": "go-together",
+  "observedVersion": "c3ca46b3-ac3c-4061-9bfb-14b5a0396596",
+  "targetHubVersion": "9f631634-e9dd-4682-bf10-ccafe3d79819",
+  "changes": [
+    {"name": "HUB_V2", "service": "ygg-connection-hub-v2", "beforeEntrypoint": null, "entrypoint": "HubBridge"},
+    {"name": "OBSERVATORY_GO", "service": "observatory-shared-browser", "beforeEntrypoint": null, "entrypoint": "ObservatoryGoBridge"},
+    {"name": "GOVIEW_GO", "service": "goview-package-bridge", "beforeEntrypoint": null, "entrypoint": "GoviewGoBridge"}
+  ]
+}

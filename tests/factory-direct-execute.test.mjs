@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker/index.js';
-import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus}
+import worker from './hub-fixture.mjs';
+import {factoryDirectSubmit,factoryDirectArtifact,factoryDirectReadback,factoryDirectJobStatus,factoryJobStampStatus}
   from '../worker/factory-direct.mjs';
 
 const ROOT='https://go-together.pureekangraw.workers.dev';
@@ -81,32 +81,22 @@ async function mcp(env,name,args,auth=ctx){
   let data=body; if(raw!==undefined){try{data=JSON.parse(raw);}catch{data=raw;}}
   return {status:res.status,data,isError:body.result?.isError===true};
 }
-test('Owner GO submits CODE brief, receives Factory Job ID, Receipt and exact bytes with no Work Pass',async()=>{
+test('Factory MCP only stages proposals; legacy direct submit is not exposed',async()=>{
   const f=fixture();
-  const result=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:true});
-  assert.equal(result.status,200);
-  assert.equal(result.data.ok,true,JSON.stringify(result.data));
-  assert.equal(result.data.status,'GO_FACTORY_DELIVERABLE_READY');
-  assert.equal(result.data.jobId,JOB);
-  assert.equal(result.data.receiptId,RID);
-  assert.equal(Buffer.from(result.data.artifact.base64,'base64').toString(),'export default "after"');
-  assert.deepEqual(f.seen,['/health','/station/go-auth-probe','/station/go-job','/station/readback/'+RID,
-    '/station/readback/'+RID,'/station/go-artifact']);
-  const reread=await factoryDirectReadback(f.env,{receiptId:RID});
-  assert.equal(reread.verified,true);
-  const status=await factoryDirectJobStatus(f.env,{requestId:ID});
-  assert.equal(status.jobId,JOB);
-  assert.equal(status.status,'GO_JOB_STATUS_READ');
+  const listed=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',
+    body:JSON.stringify({jsonrpc:'2.0',id:5,method:'tools/list'})}),f.env,ctx);
+  const tools=(await listed.json()).result.tools;
+  assert.ok(tools.some(x=>x.name==='factory_direct_propose'));
+  assert.ok(tools.some(x=>x.name==='factory_direct_approval_status'));
+  assert.ok(!tools.some(x=>x.name==='factory_direct_submit'));
+  const legacy=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:true});
+  assert.equal(legacy.data.error?.message,'unknown_tool');
+  assert.equal(f.seen.length,0);
 });
-test('Owner only; rejected or anonymous commands never enter Factory',async()=>{
+test('Anonymous calls cannot propose or dispatch Factory work',async()=>{
   const f=fixture();
-  const anonymous=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:true},{});
+  const anonymous=await mcp(f.env,'factory_direct_propose',{domain:'CODE',spec,requestId:ID},{});
   assert.equal(anonymous.status,401);
-  const noApproval=await mcp(f.env,'factory_direct_submit',{domain:'CODE',spec,requestId:ID,approved:false});
-  assert.equal(noApproval.status,200);
-  assert.equal(noApproval.isError,true);
-  assert.equal(noApproval.data,'explicit_owner_approval_required');
-  // No dispatch when owner approval is not explicit.
   assert.equal(f.seen.length,0);
 });
 test('Dummy Cloudflare keys fail closed and cannot run any request',async()=>{
@@ -133,12 +123,86 @@ test('Direct GO MCP only exposes simple job commands, never requires Work Pass',
     body:JSON.stringify({jsonrpc:'2.0',id:5,method:'tools/list'})}),f.env,ctx);
   const tools=(await result.json()).result.tools;
   const names=tools.map(t=>t.name);
-  for(const t of ['factory_direct_status','factory_direct_submit',
+  for(const t of ['factory_direct_status','factory_direct_propose','factory_direct_approval_status',
     'factory_direct_job_status','factory_direct_readback','factory_direct_artifact'])
     assert.ok(names.includes(t));
-  for(const t of ['factory_direct_prepare','factory_direct_preflight','factory_direct_execute'])
+  for(const t of ['factory_direct_submit','factory_direct_prepare','factory_direct_preflight','factory_direct_execute'])
     assert.ok(!names.includes(t));
-  assert.deepEqual(tools.find(t=>t.name==='factory_direct_submit').inputSchema.required,
-    ['domain','spec','approved']);
-  assert.ok(!JSON.stringify(tools.find(t=>t.name==='factory_direct_submit').inputSchema).includes('workPass'));
+  const propose=tools.find(t=>t.name==='factory_direct_propose');
+  assert.deepEqual(propose.inputSchema.required,['domain','spec','requestId']);
+  assert.equal(propose.annotations.destructiveHint,false);
+  assert.ok(!JSON.stringify(propose.inputSchema).includes('approved'));
+  assert.ok(!JSON.stringify(propose.inputSchema).includes('workPass'));
+});
+
+
+
+test('PROOF bridge returns receipt-bound report, not application acceptance', async () => {
+  const f=fixture(),before=f.env.FACTORY_DIRECT.fetch;
+  const ref='r2://factory/records/proof/reports/'+JOB;
+  const report={schema:'FACTORY_PROOF_REPORT_V1',workId:JOB,checkpointId:'CP-'+JOB,
+    factorySourceSha:SHA,mode:'CATALOG',verdict:'REFERENCE_ONLY',
+    appAcceptanceVerified:false,externalTestExecuted:false};
+  f.env.FACTORY_DIRECT.fetch=async request=>{
+    const path=new URL(request.url).pathname;
+    if(path==='/health'){
+      const r=await before(request),h=await r.json();
+      return Response.json({...h,machinery:{...h.machinery,PROOF:{status:'READY'}}});
+    }
+    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
+    if(path==='/station/readback/'+RID)return Response.json({...readback(),
+      result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
+      machineResult:{proofResult:report,reportRef:ref}});
+    if(path==='/station/go-artifact'){
+      const bytes=new TextEncoder().encode(JSON.stringify(report));
+      return new Response(bytes,{headers:{'content-type':'application/json',
+        'x-factory-artifact-sha256':await digest(bytes),
+        'x-factory-receipt-id':RID,'x-factory-source-sha':SHA}});
+    }
+    return before(request);
+  };
+  const out=await factoryDirectSubmit(f.env,{domain:'PROOF',spec:{mode:'CATALOG',caseIds:[]},requestId:ID},true);
+  assert.equal(out.status,'PROOF_REPORT_READY',JSON.stringify(out));
+  assert.equal(out.verdict,'REFERENCE_ONLY');
+  assert.equal(out.appAcceptanceVerified,false);
+  assert.equal(out.reportRef,ref);
+  assert.equal(out.deliveredBytes,true);
+  assert.equal(out.artifact.mime,'application/json');
+  assert.deepEqual(JSON.parse(Buffer.from(out.artifact.base64,'base64').toString()),report);
+});
+
+test('GO reads existing Job Stamp by signed receipt, no new machine command or key issuance',async()=>{
+ const f=fixture(),original=f.env.FACTORY_DIRECT.fetch;
+ const stampRef='r2://factory/records/factory/job-stamp/v1/'+RID;
+ const stamp={schema:'FACTORY_JOB_STAMP_V1',receiptId:RID,jobId:JOB,checkpointId:'CP-'+JOB,
+   sourceSha:SHA,ownerDomain:'CODE',status:'PASS',
+   appAcceptanceVerified:false,dispatchState:'AVAILABLE_NOT_DELIVERED',
+   files:[{ref:ART,status:'VERIFIED',bytes:bytes.length,sha256:await digest(bytes)}]};
+ f.env.FACTORY_DIRECT.fetch=async req=>{
+   if(new URL(req.url).pathname==='/station/go-job-stamp-status'){
+     assert.deepEqual(await req.json(),{receiptId:RID});
+     return Response.json({status:'PASS',receiptId:RID,stamp,stampRef,readOnly:true});
+   }
+   return original(req);
+ };
+ const result=await factoryJobStampStatus(f.env,{receiptId:RID});
+ assert.equal(result.ok,true,JSON.stringify(result));
+ assert.equal(result.deliveryAuthorized,true);
+ assert.equal(result.stampRef,stampRef);
+ const viaMcp=await mcp(f.env,'factory_job_stamp_status',{receiptId:RID});
+ assert.equal(viaMcp.data.ok,true,JSON.stringify(viaMcp.data));
+ assert.equal(viaMcp.data.stamp.appAcceptanceVerified,false);
+});
+test('GO advertises existing PROOF managed environment TOOLKIT schema',async()=>{
+ const f=fixture();
+ const res=await worker.fetch(new Request(ROOT+'/mcp',{method:'POST',body:JSON.stringify({
+   jsonrpc:'2.0',id:5,method:'tools/list'})}),f.env,ctx);
+ const catalog=(await res.json()).result.tools;
+ assert.ok(catalog.some(x=>x.name==='factory_job_stamp_status'));
+ const spec=catalog.find(x=>x.name==='factory_direct_propose').inputSchema.properties.spec;
+ const parts=spec.oneOf||[];
+ assert.ok(parts.some(x=>x.properties?.mode?.const==='TOOLKIT'&&
+   x.properties.action.enum.includes('OPEN_ENV')&&
+   x.properties.action.enum.includes('RUN_CASE')&&
+   x.properties.action.enum.includes('CLOSE_ENV')));
 });

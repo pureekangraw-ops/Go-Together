@@ -6,13 +6,25 @@ on:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'static/**'
+      - 'scripts/**'
       - '.github/workflows/go-together-tests.yml'
+      - '.github/workflows/go-manual-assets-deploy.yml'
+      - '.github/release-manifest.json'
+      - '.github/release-infrastructure/**'
+      - '.github/runner/**'
   pull_request:
     paths:
       - 'worker/**'
       - 'tests/**'
+      - 'static/**'
+      - 'scripts/**'
       - 'wrangler.jsonc'
       - '.github/workflows/go-together-tests.yml'
+      - '.github/workflows/go-manual-assets-deploy.yml'
+      - '.github/release-manifest.json'
+      - '.github/release-infrastructure/**'
+      - '.github/runner/**'
   workflow_dispatch:
 
 permissions:

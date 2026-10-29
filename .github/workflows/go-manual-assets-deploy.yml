@@ -1,0 +1,156 @@
+name: GO | Owner paired release
+run-name: GO release ${{ inputs.release_id }} ${{ inputs.request_id }} ${{ inputs.action }}
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [prepare, start, rollback]
+        required: true
+      release_id:
+        type: string
+        required: true
+      request_id:
+        type: string
+        required: true
+      original_request_id:
+        type: string
+        required: false
+      expected_sha:
+        type: string
+        required: true
+      hub_sha:
+        type: string
+        required: true
+      go_baseline:
+        type: string
+        required: true
+      hub_baseline:
+        type: string
+        required: true
+      confirm:
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: go-hub-owner-production
+  cancel-in-progress: false
+env:
+  RELEASE_ACTION: ${{ inputs.action }}
+  RELEASE_ID: ${{ inputs.release_id }}
+  RELEASE_REQUEST_ID: ${{ inputs.request_id }}
+  RELEASE_ORIGINAL_REQUEST_ID: ${{ inputs.original_request_id }}
+  RELEASE_GO_SHA: ${{ inputs.expected_sha }}
+  RELEASE_HUB_SHA: ${{ inputs.hub_sha }}
+  RELEASE_GO_BASELINE: ${{ inputs.go_baseline }}
+  RELEASE_HUB_BASELINE: ${{ inputs.hub_baseline }}
+  RELEASE_CONFIRM: ${{ inputs.confirm }}
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate the single trusted manifest
+        run: node scripts/paired-release-runner.mjs manifest
+  production:
+    needs: preflight
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+    environment: go-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Set the private infrastructure path
+        run: printf '%s\n' "RELEASE_HUB_CONFIG_PATH=$RUNNER_TEMP/hub-infrastructure.json" >> "$GITHUB_ENV"
+      - name: Install the same pinned toolchain without deployment credentials
+        run: npm ci --prefix .github/runner --no-audit --no-fund
+      - name: Recheck exact approved source and fallback
+        run: node scripts/paired-release-runner.mjs manifest
+      - name: Fetch reviewed private Hub infrastructure
+        env:
+          GITLAB_SOURCE_TOKEN: ${{ secrets.GITLAB_SOURCE_TOKEN }}
+        run: node scripts/paired-release-runner.mjs fetch-infrastructure
+      - uses: actions/checkout@v4
+        if: inputs.action != 'rollback'
+        with:
+          ref: ${{ inputs.expected_sha }}
+          path: sources/go
+          persist-credentials: false
+      - name: Verify exact GO source
+        if: inputs.action != 'rollback'
+        run: node scripts/paired-release-runner.mjs source
+      - name: Fetch Hub source from its exact GitLab commit (read only)
+        if: inputs.action != 'rollback'
+        env:
+          GITLAB_SOURCE_TOKEN: ${{ secrets.GITLAB_SOURCE_TOKEN }}
+        run: node scripts/paired-release-runner.mjs fetch-hub
+      - name: Test GO with no deployment credentials
+        if: inputs.action != 'rollback'
+        working-directory: sources/go
+        run: |
+          node scripts/assert-current-routing.mjs
+          node --test --test-isolation=none tests/*.test.mjs
+          ../../.github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir "$RUNNER_TEMP/go-build"
+      - name: Test Hub with no deployment or provider credentials
+        if: inputs.action != 'rollback'
+        working-directory: sources/hub
+        run: |
+          npm ci > "$RUNNER_TEMP/hub-install.log" 2>&1 || { echo 'HUB_INSTALL_FAILED'; exit 1; }
+          npm run check > "$RUNNER_TEMP/hub-check.log" 2>&1 || { echo 'HUB_CHECK_FAILED'; exit 1; }
+          npm test > "$RUNNER_TEMP/hub-tests.log" 2>&1 || { echo 'HUB_TESTS_FAILED'; exit 1; }
+          npm run build > "$RUNNER_TEMP/hub-build.log" 2>&1 || { echo 'HUB_BUILD_FAILED'; exit 1; }
+          echo 'HUB_PINNED_SOURCE_TESTS_AND_BUILD_PASSED'
+      - name: Package tested runtime and assets; exclude infrastructure and credentials
+        if: inputs.action != 'rollback'
+        run: node scripts/release-bundle.mjs "$RUNNER_TEMP/go-build/hub-entry.js" sources/hub/dist/entry.js sources/go/static go-hub-bundle.json
+      - name: Verify the exact bundle against current infrastructure without credentials
+        if: inputs.action != 'rollback'
+        run: node scripts/paired-release-runner.mjs bundle-check
+      - name: Prepare a durable draft release artifact (no deployment)
+        if: inputs.action == 'prepare'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/paired-release-runner.mjs publish
+      - name: Verify fallback; deploy GO, accept it, then deploy Hub from the same tested bundle
+        if: inputs.action == 'start'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/paired-release-runner.mjs deploy
+      - name: Recover approved earlier code and assets using CURRENT infrastructure
+        if: inputs.action == 'rollback'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/paired-release-runner.mjs rollback
+      - name: Reconcile failure and recover only this run's changes
+        if: failure() && inputs.action == 'start'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/paired-release-runner.mjs recover
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ inputs.release_id }}-${{ inputs.request_id }}
+          path: release-receipt/
+          retention-days: 90
+          if-no-files-found: warn

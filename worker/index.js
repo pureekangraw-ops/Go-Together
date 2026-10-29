@@ -259,6 +259,7 @@ export const tools=[
 async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
+if(['goview_transfer_read','goview_transfer_publish','goview_transfer_receipt'].includes(name))return goviewDirect(env,name,a);
 if(!local&&hubGroup(name))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}

@@ -145,7 +145,7 @@ export function assertRecoveryBundlePolicy(bundle,m){
 export function assertRecoveryProductionBaseline(snapshot,original,sourceSha){
  if(snapshot.annotations['workers/tag']!==original||snapshot.annotations['workers/message']!==sourceSha)die('RECOVERY_PRODUCTION_DRIFT');
 }
-async function approvedRecovery(m){
+export async function approvedRecovery(m){
  const metadata=await github('/releases/assets/'+m.recovery.assetId);if(metadata.id!==m.recovery.assetId||metadata.state!=='uploaded'||metadata.name!=='go-hub-bundle.json'||metadata.size>32*1024*1024)die('RECOVERY_ASSET_UNAVAILABLE');
  if(metadata.digest&&metadata.digest!=='sha256:'+m.recovery.sha256)die('RECOVERY_ASSET_DIGEST_MISMATCH');
  const bytes=await github('/releases/assets/'+m.recovery.assetId,{raw:true});const v=assertRecoveryBundlePolicy(validateBundle(bytes,m.recovery.sha256),m);return materialize(bytes,m.recovery.sha256);

@@ -1,3 +1,4 @@
+import {validRepositoryJob} from './factory-repository-job.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH=/^[a-f0-9]{64}$/;
 const DOMAINS=new Set(['CODE','VISUAL','LOGIC','PROOF']);
@@ -74,6 +75,8 @@ export async function createFactoryApproval(db,{domain,spec,requestId,githubDeli
       !FILE_PATH.test(githubDelivery.filePath||'')||githubDelivery.filePath.split('/').includes('..'))
       throw new FactoryApprovalError(400,'FACTORY_GITHUB_DELIVERY_INVALID');
   }
+  if(spec.repositoryJob!==undefined&&(domain!=='CODE'||githubDelivery!==undefined||Object.keys(spec).length!==1||!validRepositoryJob(spec.repositoryJob)))
+    throw new FactoryApprovalError(400,'REPOSITORY_JOB_INVALID');
   const payload={domain,spec,requestId,...(githubDelivery===undefined?{}:{githubDelivery})};
   const payloadJson=canonical(payload);
   if(new TextEncoder().encode(payloadJson).length>65536)
@@ -101,7 +104,7 @@ export async function createFactoryApproval(db,{domain,spec,requestId,githubDeli
 }
 function nextAfterDispatch(result){
   if(result?.ok===true){
-    if(result.status==='VISUAL_JOB_ACCEPTED'||['ACCEPTED','IN_PROGRESS','UNKNOWN'].includes(result.jobStatus))return 'RUNNING';
+    if(['VISUAL_JOB_ACCEPTED','CODE_REPOSITORY_JOB_ACCEPTED'].includes(result.status)||['ACCEPTED','IN_PROGRESS','UNKNOWN'].includes(result.jobStatus))return 'RUNNING';
     if(result.executed===true||result.pullRequestUrl||result.prUrl||result.status==='GITHUB_PR_CREATED')return 'COMPLETED';
     return 'UNKNOWN';
   }
@@ -150,7 +153,7 @@ export async function reconcileFactoryApproval(db,{id,statusReader}={}){
   if(!['DISPATCHING','RUNNING','UNKNOWN'].includes(row.status))return view(row);
   if(typeof statusReader!=='function')throw new FactoryApprovalError(500,'APPROVAL_STATUS_UNAVAILABLE');
   let read;
-  try{read=await statusReader(row.request_id);}catch{return view(row);}
+  try{read=await statusReader(row.request_id,parseJson(row.payload_json,{}));}catch{return view(row);}
   let status=row.status;
   if(read?.ok&&read.jobStatus==='COMPLETED'&&read.verified===true)status='COMPLETED';
   else if(read?.ok&&['ACCEPTED','IN_PROGRESS'].includes(read.jobStatus))status='RUNNING';
@@ -160,3 +163,4 @@ export async function reconcileFactoryApproval(db,{id,statusReader}={}){
     .bind(status,JSON.stringify(compact(read)),new Date().toISOString(),id,row.status).run();
   return view(await rowById(db,id));
 }
+

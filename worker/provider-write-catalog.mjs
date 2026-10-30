@@ -1,8 +1,12 @@
+import {REPOSITORY_JOB_SCHEMA} from './repository-job-contract.mjs';
 const shape=(p={},r=[])=>({type:'object',properties:p,required:r,additionalProperties:false});
 const str=(max=300)=>({type:'string',minLength:1,maxLength:max});
 const writable=(name,description,p,r)=>({name,description:description+' Reuse requestId to inspect an uncertain delivery; use a new ID only for a new intended operation.',inputSchema:shape({...p,requestId:str(120)},[...r,'requestId']),annotations:{readOnlyHint:false,destructiveHint:false}});
 export const PROVIDER_WRITES={
  github:[
+  {name:'github_code_job_dispatch',description:'Dispatch the existing Factory repository workflow once after owner approval. No merge or deploy.',inputSchema:shape({requestId:{type:'string',format:'uuid'},...REPOSITORY_JOB_SCHEMA.properties},['requestId','baseSha','files']),annotations:{readOnlyHint:false,destructiveHint:false}},
+  {name:'github_code_job_readback',description:'Read the correlated Factory workflow and independently verify every submitted file. Never dispatches.',inputSchema:shape({requestId:{type:'string',format:'uuid'},...REPOSITORY_JOB_SCHEMA.properties},['requestId','baseSha','files']),annotations:{readOnlyHint:true,destructiveHint:false}},
+
   writable('github_branch','Create a work branch from a pinned commit; does not modify main.',{repo:str(),branch:str(120),from_sha:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['repo','branch','from_sha']),
   writable('github_put_file','Create or replace a UTF-8 file on a non-default work branch, with SHA for existing files.',{repo:str(),branch:str(120),path:str(300),content:str(65536),message:str(300),sha:{type:'string',pattern:'^[0-9a-fA-F]{40}$'}},['repo','branch','path','content','message']),
   writable('github_open_pr','Open a PR from a work branch; does not merge.',{repo:str(),head:str(120),base:str(120),title:str(200),body:{type:'string',maxLength:4000}},['repo','head','base','title'])
@@ -31,5 +35,10 @@ export const PROVIDER_WRITES={
   {name:'slack_history',description:'Read a bounded page of messages for one explicit channel.',inputSchema:shape({channel:str(100),limit:{type:'integer',minimum:1,maximum:100},cursor:str(1000)},['channel']),annotations:{readOnlyHint:true,destructiveHint:false}},
   writable('slack_update_message','Edit an existing message owned by the connected Slack identity.',{channel:str(100),ts:{type:'string',pattern:'^[0-9]+[.][0-9]+$'},text:str(3500)},['channel','ts','text']),
   writable('slack_post_message','Post a message to one explicit channel.',{channel:str(100),text:str(3500)},['channel','text'])
+ ],
+ storage:[
+  {name:'storage_upload',description:'Upload a Product file or create a new immutable version after Hub Owner approval. Does not accept Environment files through AI.',inputSchema:shape({storageClass:{const:'PRODUCT'},project:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'},filename:str(180),displayName:str(200),description:{type:'string',maxLength:2000},category:{type:'string',maxLength:80},contentType:str(120),contentBase64:{type:'string',minLength:1,maxLength:180000},fileId:{type:'string',format:'uuid'},requestId:{type:'string',format:'uuid'}},['storageClass','project','filename','contentType','contentBase64','requestId']),annotations:{readOnlyHint:false,destructiveHint:false}},
+  {name:'storage_update_metadata',description:'Update file metadata or archive a file after Hub Owner approval; never deletes or moves the R2 object.',inputSchema:shape({fileId:{type:'string',format:'uuid'},requestId:{type:'string',format:'uuid'},displayName:{type:'string',maxLength:200},description:{type:'string',maxLength:2000},category:{type:'string',maxLength:80},project:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'},status:{enum:['ACTIVE','ARCHIVED']}},['fileId','requestId']),annotations:{readOnlyHint:false,destructiveHint:false}}
  ]
 };
+

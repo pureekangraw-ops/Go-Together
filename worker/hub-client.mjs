@@ -4,7 +4,7 @@ export function hubGroup(name){
  if(name.startsWith('factory_direct_')||name.startsWith('factory_visual_')||name==='factory_workshop_content')return 'factory';
  if(name.startsWith('observatory_'))return 'observatory';
  if(name.startsWith('goview_'))return 'goview';
- for(const p of ['github','cloudflare','notion','google','gitlab','slack'])if(name.startsWith(p+'_'))return p;
+ for(const p of ['github','cloudflare','notion','google','storage','gitlab','slack'])if(name.startsWith(p+'_'))return p;
  return null;
 }
 export async function hubTool(env,name,payload){

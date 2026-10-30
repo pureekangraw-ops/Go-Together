@@ -35,6 +35,10 @@ export const PROVIDER_WRITES={
   {name:'slack_history',description:'Read a bounded page of messages for one explicit channel.',inputSchema:shape({channel:str(100),limit:{type:'integer',minimum:1,maximum:100},cursor:str(1000)},['channel']),annotations:{readOnlyHint:true,destructiveHint:false}},
   writable('slack_update_message','Edit an existing message owned by the connected Slack identity.',{channel:str(100),ts:{type:'string',pattern:'^[0-9]+[.][0-9]+$'},text:str(3500)},['channel','ts','text']),
   writable('slack_post_message','Post a message to one explicit channel.',{channel:str(100),text:str(3500)},['channel','text'])
+ ],
+ storage:[
+  {name:'storage_upload',description:'Upload a Product file or create a new immutable version after Hub Owner approval. Does not accept Environment files through AI.',inputSchema:shape({storageClass:{const:'PRODUCT'},project:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'},filename:str(180),displayName:str(200),description:{type:'string',maxLength:2000},category:{type:'string',maxLength:80},contentType:str(120),contentBase64:{type:'string',minLength:1,maxLength:180000},fileId:{type:'string',format:'uuid'},requestId:{type:'string',format:'uuid'}},['storageClass','project','filename','contentType','contentBase64','requestId']),annotations:{readOnlyHint:false,destructiveHint:false}},
+  {name:'storage_update_metadata',description:'Update file metadata or archive a file after Hub Owner approval; never deletes or moves the R2 object.',inputSchema:shape({fileId:{type:'string',format:'uuid'},requestId:{type:'string',format:'uuid'},displayName:{type:'string',maxLength:200},description:{type:'string',maxLength:2000},category:{type:'string',maxLength:80},project:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$'},status:{enum:['ACTIVE','ARCHIVED']}},['fileId','requestId']),annotations:{readOnlyHint:false,destructiveHint:false}}
  ]
 };
 

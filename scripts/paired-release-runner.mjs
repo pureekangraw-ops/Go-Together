@@ -137,10 +137,18 @@ export function assertInfrastructurePlan(live,config){
   else if(!['plain_text','json','secret_text','secret_key','version_metadata','assets'].includes(b.type))die('INFRASTRUCTURE_UNSUPPORTED_BINDING');
  }
 }
+export function assertRecoveryBundlePolicy(bundle,m){
+ if(bundle.controllerAbi===0&&m.bootstrap!==true)die('LEGACY_RECOVERY_BOOTSTRAP_ONLY');
+ if(bundle.sources.go!==m.recovery.goSha||bundle.sources.hub!==m.recovery.hubSha)die('RECOVERY_SOURCE_MISMATCH');
+ return bundle;
+}
+export function assertRecoveryProductionBaseline(snapshot,original,sourceSha){
+ if(snapshot.annotations['workers/tag']!==original||snapshot.annotations['workers/message']!==sourceSha)die('RECOVERY_PRODUCTION_DRIFT');
+}
 async function approvedRecovery(m){
  const metadata=await github('/releases/assets/'+m.recovery.assetId);if(metadata.id!==m.recovery.assetId||metadata.state!=='uploaded'||metadata.name!=='go-hub-bundle.json'||metadata.size>32*1024*1024)die('RECOVERY_ASSET_UNAVAILABLE');
  if(metadata.digest&&metadata.digest!=='sha256:'+m.recovery.sha256)die('RECOVERY_ASSET_DIGEST_MISMATCH');
- const bytes=await github('/releases/assets/'+m.recovery.assetId,{raw:true});const v=validateBundle(bytes,m.recovery.sha256);if(v.controllerAbi===0&&m.bootstrap!==true)die('LEGACY_RECOVERY_BOOTSTRAP_ONLY');if(v.sources.go!==m.recovery.goSha||v.sources.hub!==m.recovery.hubSha)die('RECOVERY_SOURCE_MISMATCH');return materialize(bytes,m.recovery.sha256);
+ const bytes=await github('/releases/assets/'+m.recovery.assetId,{raw:true});const v=assertRecoveryBundlePolicy(validateBundle(bytes,m.recovery.sha256),m);return materialize(bytes,m.recovery.sha256);
 }
 export async function publishBundle(v,bytes,digest,{reuseDraft=null}={}){
  const payload=validateBundle(bytes,digest);if(payload.controllerAbi===0&&!(v.action==='prepare'&&manifest(v,false).bootstrap===true))die('LEGACY_PREPARATION_BOOTSTRAP_ONLY');if(payload.sources.go!==v.goSha||payload.sources.hub!==v.hubSha)die('CANDIDATE_SOURCE_MISMATCH');
@@ -212,7 +220,7 @@ async function restore(v,m,automatic){
  const changes=[];
  for(const [kind,s] of Object.entries(states)){
   if(automatic&&s.id===v[kind+'Version'])continue;
-  if(s.annotations['workers/tag']!==original||s.annotations['workers/message']!==v[kind+'Sha'])die('RECOVERY_PRODUCTION_DRIFT');
+  assertRecoveryProductionBaseline(s,original,v[kind+'Sha']);
   assertInfrastructurePlan(s.bindings,configs()[kind]);changes.push(kind);
  }
  // Validate the complete fallback bundle and both current infrastructure plans before any effect.

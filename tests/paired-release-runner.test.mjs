@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertActive,assertPreserved,bindingsFingerprint,inputs,trustedManifest,assertInfrastructurePlan,assertRecoveryBundlePolicy,assertRecoveryProductionBaseline} from '../scripts/paired-release-runner.mjs';
+import {assertActive,assertPreserved,bindingsFingerprint,inputs,trustedManifest,assertInfrastructurePlan,assertRecoveryBundlePolicy,assertRecoveryProductionBaseline,approvedRecovery} from '../scripts/paired-release-runner.mjs';
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {join} from 'node:path';
@@ -41,6 +41,32 @@ test('valid ABI-2 recovery fixture passes source and exact baseline guards',()=>
 });
 test('recovery source pin mismatch remains rejected',()=>{
  assert.throws(()=>assertRecoveryBundlePolicy({controllerAbi:2,sources:{go:'0'.repeat(40),hub:recoverySources.hub}},recoveryManifest),/RECOVERY_SOURCE_MISMATCH/);
+});
+test('approvedRecovery rejects ABI-0 with bootstrap:false after authenticated asset verification and before materializing',async()=>{
+ const bundle=createBundle({controllerAbi:0,releaseId:'owner-recovery-20261028',goSha:recoverySources.go,hubSha:recoverySources.hub,files:{
+  'go/runtime.js':Buffer.from('legacy go runtime'),
+  'hub/runtime.js':Buffer.from('legacy hub runtime'),
+  'go/static/index.html':Buffer.from('<html>fixture</html>'),
+  'go/static/manifest.webmanifest':Buffer.from('{}'),
+  'go/static/service-worker.js':Buffer.from('network-only'),
+  'go/static/_headers':Buffer.from('Cache-Control: no-store')
+ }});
+ const calls=[],oldFetch=globalThis.fetch,oldToken=process.env.GITHUB_TOKEN;
+ try{
+  process.env.GITHUB_TOKEN='fixture-token';
+  globalThis.fetch=async(url,options)=>{
+   const parsed=new URL(url);calls.push({host:parsed.hostname,path:parsed.pathname,accept:options.headers.accept});
+   assert.equal(parsed.pathname,'/repos/pureekangraw-ops/Go-Together/releases/assets/684561581');
+   if(options.headers.accept==='application/octet-stream')return new Response(bundle.bytes);
+   return Response.json({id:684561581,state:'uploaded',name:'go-hub-bundle.json',size:bundle.bytes.length,digest:'sha256:'+bundle.sha256});
+  };
+  await assert.rejects(approvedRecovery({bootstrap:false,recovery:{assetId:684561581,sha256:bundle.sha256,goSha:recoverySources.go,hubSha:recoverySources.hub}}),/LEGACY_RECOVERY_BOOTSTRAP_ONLY/);
+  assert.equal(calls.length,2);
+  assert.deepEqual(calls.map(call=>call.accept),['application/vnd.github+json','application/octet-stream']);
+ }finally{
+  globalThis.fetch=oldFetch;
+  if(oldToken===undefined)delete process.env.GITHUB_TOKEN;else process.env.GITHUB_TOKEN=oldToken;
+ }
 });
 test('unreviewed recovery manifest cannot start CI production work without secrets',async()=>{
  const {spawnSync}=await import('node:child_process');const {fileURLToPath}=await import('node:url');

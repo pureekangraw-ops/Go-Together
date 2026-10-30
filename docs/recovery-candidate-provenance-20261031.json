@@ -1,102 +1,139 @@
 {
   "recordType": "recovery-candidate-provenance-investigation",
-  "status": "BLOCKED_NO_VALID_ABI2_BUNDLE",
-  "classification": "Interim artifact retrieval investigation only; not a Production fallback or an integrated Project-grant candidate.",
-  "artifactAttempt": {
-    "classification": "INVALID_INCOMPLETE_NOT_A_CANDIDATE",
-    "localPath": "/data/recovery-candidate/go-hub-bundle.INVALID-incomplete.json",
-    "computedBytes": 712663,
-    "computedSha256": "cf8321e772d700770495f1d85dfff8e9ed9c2df70cf04256d1e84790ae9798a5",
-    "hashMeaning": "Digest of an invalid bundle assembled from a partial Hub runtime. It is not a valid recovery-bundle digest and must not be used as one.",
+  "status": "BLOCKED_NO_MATCHING_PAIRED_SOURCE_ARTIFACT",
+  "classification": "The integrated Hub CI runtime is complete and hash-verified, but its declared GO source pin does not match the paired-release source pin. No accepted paired ABI-2 bundle or restore evidence exists.",
+  "requiredRecoveryPair": {
+    "goRepository": "pureekangraw-ops/Go-Together",
+    "goSourceShaFromPR55": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+    "hubRepository": "pureekangraw/hubstation",
+    "integratedHubSourceSha": "6f0320b3783c65b26b91fcdf2186bef9062af701",
+    "note": "PR #55 remains unchanged and currently pins its older Hub candidate d0f55eb7137df2c3214ab0dfdcc083defc67e044. For this recovery investigation, the intended new paired tuple is GO 5d44e9e150cadd3cd3d120c05f059f216905281a plus integrated Hub 6f0320b3783c65b26b91fcdf2186bef9062af701; the Hub artifact must declare that exact tuple before packaging."
+  },
+  "hubCiEvidence": {
+    "mergeRequest": 10,
+    "sourceBranch": "fix/storage-mcp-deny-no-project-grant-20261030",
+    "sourceSha": "6f0320b3783c65b26b91fcdf2186bef9062af701",
+    "pipelineId": 3009728840,
+    "pipelineStatus": "success",
+    "verifyJobId": 17617534376,
+    "verifyJobStatus": "success",
+    "pipelineShaEqualsMRHead": true,
+    "verifiedCiBuildCommands": [
+      "npm ci",
+      "npm run audit",
+      "npm run check",
+      "npm test",
+      "npm run build",
+      "node scripts/prepare-provider-release.mjs",
+      "npm run test:browser",
+      "npm run build",
+      "node scripts/prepare-provider-release.mjs",
+      "EXPORT_CANDIDATE=true EXPECTED_GO_SOURCE_SHA=... EXPECTED_HUB_SOURCE_SHA=$CI_COMMIT_SHA node scripts/export-approved-artifact.mjs"
+    ],
+    "manualReleaseJob": "not run; remains manual"
+  },
+  "hubCandidateArtifact": {
+    "artifactPath": "candidate-export/entry.js",
+    "jobId": 17617534376,
+    "bytes": 320293,
+    "completeContiguousRanges": [
+      {
+        "start": 0,
+        "end": 200000,
+        "bytes": 200000
+      },
+      {
+        "start": 200000,
+        "end": 320293,
+        "bytes": 120293
+      }
+    ],
+    "complete": true,
+    "runtimeSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
+    "shaMatchesCandidateManifestAndJobLog": true,
+    "candidateManifest": {
+      "artifactPath": "candidate-export/manifest.json",
+      "bytes": 4417,
+      "sha256": "7546b7fbaef3986b6ec5c7d489a3a325705ac2927a7dc0a87d6217215b860b34",
+      "status": "CANDIDATE_NOT_APPROVED",
+      "releaseApproved": false,
+      "productionVerified": false
+    },
+    "declaredSources": {
+      "hub": "6f0320b3783c65b26b91fcdf2186bef9062af701",
+      "go": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee"
+    },
+    "sourcePinMatch": false,
+    "mismatch": "Candidate manifest declares GO a63e4fddf4c982d8e9d8e722542f649cc8e51cee, while PR #55 pins GO 5d44e9e150cadd3cd3d120c05f059f216905281a. Retain as CI evidence only; do not package or present it as the PR #55 paired candidate.",
+    "ciRun": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41042035216"
+  },
+  "distEntryArtifactRetrieval": {
+    "artifactPath": "dist/entry.js",
+    "reportedTotalBytes": 836095,
+    "contiguousPrefixBytes": 320293,
+    "contiguousPrefixSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
+    "subsequentRangeAt320293ReturnedEmpty": true,
+    "note": "This direct path could not be fully paged. The complete candidate-export/entry.js from the same exact job was retrieved separately in two exact ranges and matched the CI candidate manifest. Its source-pin mismatch still blocks pairing."
+  },
+  "independentOfflineBuilds": {
+    "goAtCandidateManifestPin": {
+      "sourceSha": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee",
+      "runtimeBytes": 181565,
+      "runtimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
+      "purpose": "CI evidence only; not the PR #55 paired GO source."
+    },
+    "goAtPR55Pin": {
+      "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "runtimeBytes": 181565,
+      "runtimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
+      "purpose": "Exact local GO dry-run build for the intended paired source pin."
+    }
+  },
+  "invalidatedLocalBundle": {
+    "path": "/data/recovery-candidate/go-hub-bundle.INVALID-source-mismatch-a63e4fdd-20261031.json",
+    "bytes": 717911,
+    "sha256": "0f15e4ae61ec224d0547ca7ebe714578234a5d1eb4acd79cc477884acd3dcad9",
+    "sources": {
+      "go": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee",
+      "hub": "6f0320b3783c65b26b91fcdf2186bef9062af701"
+    },
+    "classification": "INVALID_SOURCE_PIN_MISMATCH_NOT_A_PAIRED_CANDIDATE",
+    "committedOrUploaded": false,
+    "restoreEvidenceAccepted": false
+  },
+  "previousInvalidAttempt": {
+    "path": "/data/recovery-candidate/go-hub-bundle.INVALID-incomplete.json",
+    "bytes": 712663,
+    "sha256": "cf8321e772d700770495f1d85dfff8e9ed9c2df70cf04256d1e84790ae9798a5",
+    "classification": "INVALID_INCOMPLETE_PARTIAL_HUB_RUNTIME_NOT_A_CANDIDATE",
     "committedOrUploaded": false
   },
-  "sourceProvenance": {
-    "go": {
-      "repository": "pureekangraw-ops/Go-Together",
-      "ref": "main",
-      "commit": "5d44e9e150cadd3cd3d120c05f059f216905281a",
-      "sourceCommitVerified": true,
-      "runtime": {
-        "path": "hub-entry.js from local Wrangler dry-run",
-        "sizeBytes": 181565,
-        "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
-        "complete": true
-      },
-      "buildCommand": "npm ci --prefix .github/runner --no-audit --no-fund; env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_API_KEY -u CLOUDFLARE_ACCOUNT_ID WRANGLER_SEND_METRICS=false .github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir /data/recovery-candidate/go-build",
-      "toolchain": {
-        "node": "v24.22.1",
-        "npm": "11.19.1",
-        "wrangler": "4.152.0"
-      }
-    },
-    "hub": {
-      "repository": "pureekangraw/hubstation",
-      "mergeRequest": 10,
-      "sourceBranch": "fix/storage-mcp-deny-no-project-grant-20261030",
-      "verifiedArtifactPipelineHead": "ae763ce165fd8a68aa14e890dc934404bf87e901",
-      "headClassification": "Pre-Project-grant implementation interim baseline only. Not the integrated Storage candidate; do not pin as final.",
-      "pipeline": {
-        "id": 3009388634,
-        "status": "success",
-        "sourceCommit": "ae763ce165fd8a68aa14e890dc934404bf87e901",
-        "verifyJobId": 17614807932,
-        "verifyJobStatus": "success",
-        "ciBuildCommand": "npm ci; npm run check; npm test; npm run build"
-      },
-      "artifact": {
-        "path": "dist/entry.js",
-        "jobId": 17614807932,
-        "reportedTotalBytes": 821741,
-        "transferAttempts": [
-          {"requestedOffset": 0, "requestedLimit": 200000, "returnedStart": 0, "returnedEnd": 200000, "returnedBytes": 200000, "completeRange": true},
-          {"requestedOffset": 200000, "requestedLimit": 200000, "returnedStart": 200000, "returnedEnd": 314626, "returnedBytes": 114626, "completeRange": false},
-          {"requestedOffset": 400000, "requestedLimit": 200000, "returnedStart": 400000, "returnedEnd": 400000, "returnedBytes": 0, "completeRange": false},
-          {"requestedOffset": 600000, "requestedLimit": 200000, "returnedStart": 600000, "returnedEnd": 600000, "returnedBytes": 0, "completeRange": false},
-          {"requestedOffset": 800000, "requestedLimit": 21741, "returnedStart": 800000, "returnedEnd": 800000, "returnedBytes": 0, "completeRange": false}
-        ],
-        "contiguousPrefixBytes": 314626,
-        "contiguousPrefixSha256": "7c4f73baa36f3a73f580916e1879181f363b48519bd51044e184fb817afa3d37",
-        "contiguousPrefixHashMeaning": "SHA-256 of bytes 0..314625 only; not the complete runtime hash.",
-        "completeRuntimeHash": null,
-        "complete": false
-      }
-    }
-  },
-  "bundleInputs": {
-    "goRuntimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
-    "hubRuntimePartialSha256": "7c4f73baa36f3a73f580916e1879181f363b48519bd51044e184fb817afa3d37",
-    "hubRuntimeCompleteHash": null,
-    "goStaticSha256": {
-      "_headers": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8",
-      "icon.svg": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7",
-      "index.html": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473",
-      "manifest.webmanifest": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d",
-      "service-worker.js": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
-    }
-  },
-  "invalidatedWork": {
-    "bundleValidation": "The bundler accepted the available bytes and emitted ABI-2 metadata, but the Hub runtime input was incomplete. The result is invalid.",
-    "localMockRestoreRun": "A focused mock runner passed against incomplete bytes. Disregard it; it is not restore evidence.",
-    "acceptedRestoreEvidence": false
-  },
   "independentOfflineWork": {
-    "file": "scripts/verified-artifact.mjs",
-    "tests": "tests/verified-artifact.test.mjs",
-    "purpose": "Reject short, empty, overlapping, or gapped artifact ranges before a candidate bundle can be assembled.",
-    "result": "3 focused tests passed; these validate transfer completeness only, not a recovery restore."
+    "files": [
+      "scripts/verified-artifact.mjs",
+      "tests/verified-artifact.test.mjs"
+    ],
+    "result": "3 focused transfer-integrity tests passed; these are not restore tests and do not rerun the existing recovery guard suite."
+  },
+  "restoreStatus": {
+    "productionRestoreTested": false,
+    "isolatedCloudflareRestoreTested": false,
+    "acceptedLocalMockRestoreEvidence": false,
+    "note": "No restore evidence is accepted for the a63/6f source-mismatched bundle. A compatible GO 5d44 + Hub 6f candidate bundle must first be produced from an artifact whose paired manifest declares those exact pins; then run a local non-production materialization/restore test and label it as mock evidence."
   },
   "blocker": {
-    "description": "For verified interim pre-grant pipeline 3009388634/job 17614807932, get_artifact_file reports 821741 total bytes but returned only the contiguous prefix 0..314625. The 200000-byte request at offset 200000 returned 114626 bytes; requests at offsets 400000, 600000, and 800000 returned empty ranges. The artifact cannot be assembled or hashed completely from this endpoint.",
-    "requiredNextStep": "Wait for the new MR !10 Project-grant commit and its successful verify pipeline. Confirm the pipeline SHA equals that exact MR head, retrieve all dist/entry.js bytes with exact contiguous range/length checks, hash the complete runtime, then build and label only a candidate/test bundle. Do not use the interim pre-grant artifact as the integrated candidate."
+    "description": "The successful integrated Hub job artifact at pipeline 3009728840/job 17617534376 is complete and hash-verified as candidate-export/entry.js (320293 bytes, SHA-256 ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf), but its candidate manifest declares GO source a63e4fddf4c982d8e9d8e722542f649cc8e51cee. PR #55 pins GO source 5d44e9e150cadd3cd3d120c05f059f216905281a. The exact paired source tuple required for this recovery work is not present in this artifact.",
+    "requiredNextStep": "Obtain a successful candidate artifact whose paired manifest explicitly declares GO 5d44e9e150cadd3cd3d120c05f059f216905281a and Hub 6f0320b3783c65b26b91fcdf2186bef9062af701. Then verify full ranges/length/digests and source pins, build a candidate-only ABI-2 bundle, and run local non-production restore/materialization acceptance."
   },
   "productionSeparation": {
-    "activeProductionSourceSha": "UNKNOWN",
+    "productionBaselineSourceSha": "UNKNOWN",
     "productionFallbackClaim": false,
     "existingAbi0FallbackReused": false,
     "manifestRecoveryPointerChanged": false,
     "releaseAssetUploaded": false,
     "prepareOrPublishWorkflowRun": false,
     "productionDeployment": false,
-    "productionBindingsSecretsPermissionsOrD1Changed": false
+    "productionBindingsSecretsPermissionsOrD1Changed": false,
+    "pr55Changed": false
   }
 }

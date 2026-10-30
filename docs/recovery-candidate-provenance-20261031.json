@@ -1,0 +1,102 @@
+{
+  "recordType": "recovery-candidate-provenance-investigation",
+  "status": "BLOCKED_NO_VALID_ABI2_BUNDLE",
+  "classification": "Interim artifact retrieval investigation only; not a Production fallback or an integrated Project-grant candidate.",
+  "artifactAttempt": {
+    "classification": "INVALID_INCOMPLETE_NOT_A_CANDIDATE",
+    "localPath": "/data/recovery-candidate/go-hub-bundle.INVALID-incomplete.json",
+    "computedBytes": 712663,
+    "computedSha256": "cf8321e772d700770495f1d85dfff8e9ed9c2df70cf04256d1e84790ae9798a5",
+    "hashMeaning": "Digest of an invalid bundle assembled from a partial Hub runtime. It is not a valid recovery-bundle digest and must not be used as one.",
+    "committedOrUploaded": false
+  },
+  "sourceProvenance": {
+    "go": {
+      "repository": "pureekangraw-ops/Go-Together",
+      "ref": "main",
+      "commit": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "sourceCommitVerified": true,
+      "runtime": {
+        "path": "hub-entry.js from local Wrangler dry-run",
+        "sizeBytes": 181565,
+        "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
+        "complete": true
+      },
+      "buildCommand": "npm ci --prefix .github/runner --no-audit --no-fund; env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_API_KEY -u CLOUDFLARE_ACCOUNT_ID WRANGLER_SEND_METRICS=false .github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir /data/recovery-candidate/go-build",
+      "toolchain": {
+        "node": "v24.22.1",
+        "npm": "11.19.1",
+        "wrangler": "4.152.0"
+      }
+    },
+    "hub": {
+      "repository": "pureekangraw/hubstation",
+      "mergeRequest": 10,
+      "sourceBranch": "fix/storage-mcp-deny-no-project-grant-20261030",
+      "verifiedArtifactPipelineHead": "ae763ce165fd8a68aa14e890dc934404bf87e901",
+      "headClassification": "Pre-Project-grant implementation interim baseline only. Not the integrated Storage candidate; do not pin as final.",
+      "pipeline": {
+        "id": 3009388634,
+        "status": "success",
+        "sourceCommit": "ae763ce165fd8a68aa14e890dc934404bf87e901",
+        "verifyJobId": 17614807932,
+        "verifyJobStatus": "success",
+        "ciBuildCommand": "npm ci; npm run check; npm test; npm run build"
+      },
+      "artifact": {
+        "path": "dist/entry.js",
+        "jobId": 17614807932,
+        "reportedTotalBytes": 821741,
+        "transferAttempts": [
+          {"requestedOffset": 0, "requestedLimit": 200000, "returnedStart": 0, "returnedEnd": 200000, "returnedBytes": 200000, "completeRange": true},
+          {"requestedOffset": 200000, "requestedLimit": 200000, "returnedStart": 200000, "returnedEnd": 314626, "returnedBytes": 114626, "completeRange": false},
+          {"requestedOffset": 400000, "requestedLimit": 200000, "returnedStart": 400000, "returnedEnd": 400000, "returnedBytes": 0, "completeRange": false},
+          {"requestedOffset": 600000, "requestedLimit": 200000, "returnedStart": 600000, "returnedEnd": 600000, "returnedBytes": 0, "completeRange": false},
+          {"requestedOffset": 800000, "requestedLimit": 21741, "returnedStart": 800000, "returnedEnd": 800000, "returnedBytes": 0, "completeRange": false}
+        ],
+        "contiguousPrefixBytes": 314626,
+        "contiguousPrefixSha256": "7c4f73baa36f3a73f580916e1879181f363b48519bd51044e184fb817afa3d37",
+        "contiguousPrefixHashMeaning": "SHA-256 of bytes 0..314625 only; not the complete runtime hash.",
+        "completeRuntimeHash": null,
+        "complete": false
+      }
+    }
+  },
+  "bundleInputs": {
+    "goRuntimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
+    "hubRuntimePartialSha256": "7c4f73baa36f3a73f580916e1879181f363b48519bd51044e184fb817afa3d37",
+    "hubRuntimeCompleteHash": null,
+    "goStaticSha256": {
+      "_headers": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8",
+      "icon.svg": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7",
+      "index.html": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473",
+      "manifest.webmanifest": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d",
+      "service-worker.js": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
+    }
+  },
+  "invalidatedWork": {
+    "bundleValidation": "The bundler accepted the available bytes and emitted ABI-2 metadata, but the Hub runtime input was incomplete. The result is invalid.",
+    "localMockRestoreRun": "A focused mock runner passed against incomplete bytes. Disregard it; it is not restore evidence.",
+    "acceptedRestoreEvidence": false
+  },
+  "independentOfflineWork": {
+    "file": "scripts/verified-artifact.mjs",
+    "tests": "tests/verified-artifact.test.mjs",
+    "purpose": "Reject short, empty, overlapping, or gapped artifact ranges before a candidate bundle can be assembled.",
+    "result": "3 focused tests passed; these validate transfer completeness only, not a recovery restore."
+  },
+  "blocker": {
+    "description": "For verified interim pre-grant pipeline 3009388634/job 17614807932, get_artifact_file reports 821741 total bytes but returned only the contiguous prefix 0..314625. The 200000-byte request at offset 200000 returned 114626 bytes; requests at offsets 400000, 600000, and 800000 returned empty ranges. The artifact cannot be assembled or hashed completely from this endpoint.",
+    "requiredNextStep": "Wait for the new MR !10 Project-grant commit and its successful verify pipeline. Confirm the pipeline SHA equals that exact MR head, retrieve all dist/entry.js bytes with exact contiguous range/length checks, hash the complete runtime, then build and label only a candidate/test bundle. Do not use the interim pre-grant artifact as the integrated candidate."
+  },
+  "productionSeparation": {
+    "activeProductionSourceSha": "UNKNOWN",
+    "productionFallbackClaim": false,
+    "existingAbi0FallbackReused": false,
+    "manifestRecoveryPointerChanged": false,
+    "releaseAssetUploaded": false,
+    "prepareOrPublishWorkflowRun": false,
+    "productionDeployment": false,
+    "productionBindingsSecretsPermissionsOrD1Changed": false
+  }
+}

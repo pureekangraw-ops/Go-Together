@@ -1,42 +1,54 @@
 {
   "recordType": "recovery-candidate-provenance-investigation",
-  "status": "BLOCKED_NO_MATCHING_PAIRED_SOURCE_ARTIFACT",
-  "classification": "The integrated Hub CI runtime is complete and hash-verified, but its declared GO source pin does not match the paired-release source pin. No accepted paired ABI-2 bundle or restore evidence exists.",
-  "requiredRecoveryPair": {
-    "goRepository": "pureekangraw-ops/Go-Together",
-    "goSourceShaFromPR55": "5d44e9e150cadd3cd3d120c05f059f216905281a",
-    "hubRepository": "pureekangraw/hubstation",
-    "integratedHubSourceSha": "6f0320b3783c65b26b91fcdf2186bef9062af701",
-    "note": "PR #55 remains unchanged and currently pins its older Hub candidate d0f55eb7137df2c3214ab0dfdcc083defc67e044. For this recovery investigation, the intended new paired tuple is GO 5d44e9e150cadd3cd3d120c05f059f216905281a plus integrated Hub 6f0320b3783c65b26b91fcdf2186bef9062af701; the Hub artifact must declare that exact tuple before packaging."
+  "status": "ABI2_CANDIDATE_BUILT_LOCAL_MOCK_MATERIALIZATION_PASS_PRODUCTION_BASELINE_UNKNOWN",
+  "classification": "A complete, hash-verified ABI-2 candidate/test bundle was built from exact named GO and Hub source pins. Local filesystem materialization using mock configs passed. This is not a Production fallback or rollback-ready artifact; the Production source baseline remains unknown and no isolated Cloudflare restore was run.",
+  "candidatePair": {
+    "go": {
+      "repository": "pureekangraw-ops/Go-Together",
+      "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "basis": "GO source pin required by PR #55",
+      "wranglerConfigBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9"
+    },
+    "hub": {
+      "repository": "pureekangraw/hubstation",
+      "sourceSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+      "basis": "latest integrated Project-grant candidate on existing MR !10 branch; includes candidate-only paired GO pin update"
+    },
+    "note": "PR #55 was not changed. Its own manifest still names the earlier Hub source d0f55eb7137df2c3214ab0dfdcc083defc67e044. This local candidate uses PR #55's exact GO pin plus the newer integrated Hub MR !10 head; it must not be described as the unchanged PR #55 manifest's original full pair."
+  },
+  "hubCandidatePinChange": {
+    "mergeRequest": 10,
+    "url": "https://gitlab.com/pureekangraw/hubstation/-/merge_requests/10",
+    "branch": "fix/storage-mcp-deny-no-project-grant-20261030",
+    "previousHead": "6f0320b3783c65b26b91fcdf2186bef9062af701",
+    "head": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+    "commitTitle": "ci(candidate): pin paired GO source to PR55 SHA",
+    "changedFiles": [
+      ".gitlab-ci.yml",
+      "releases/go-provider-candidate.json"
+    ],
+    "changeSummary": "Updated only the candidate GO source pin to exact GO 5d44e9e... and CI provenance reference. No runtime source, release workflow semantics, main/prepare/publish path, or Production config was changed.",
+    "draft": true
   },
   "hubCiEvidence": {
-    "mergeRequest": 10,
-    "sourceBranch": "fix/storage-mcp-deny-no-project-grant-20261030",
-    "sourceSha": "6f0320b3783c65b26b91fcdf2186bef9062af701",
-    "pipelineId": 3009728840,
+    "pipelineId": 3009791997,
+    "pipelineUrl": "https://gitlab.com/pureekangraw/hubstation/-/pipelines/3009791997",
     "pipelineStatus": "success",
-    "verifyJobId": 17617534376,
-    "verifyJobStatus": "success",
-    "pipelineShaEqualsMRHead": true,
-    "verifiedCiBuildCommands": [
-      "npm ci",
-      "npm run audit",
-      "npm run check",
-      "npm test",
-      "npm run build",
-      "node scripts/prepare-provider-release.mjs",
-      "npm run test:browser",
-      "npm run build",
-      "node scripts/prepare-provider-release.mjs",
-      "EXPORT_CANDIDATE=true EXPECTED_GO_SOURCE_SHA=... EXPECTED_HUB_SOURCE_SHA=$CI_COMMIT_SHA node scripts/export-approved-artifact.mjs"
-    ],
-    "manualReleaseJob": "not run; remains manual"
+    "pipelineSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+    "successfulVerifyJobId": 17618040534,
+    "successfulVerifyJobUrl": "https://gitlab.com/pureekangraw/hubstation/-/jobs/17618040534",
+    "successfulVerifyJobStatus": "success",
+    "retryNote": "The initial verify attempt in this pipeline failed at the browser panel timeout; the retry of the same verify job completed successfully. Pipeline head equals the MR !10 head above.",
+    "ciImage": "node:24-bookworm-slim",
+    "toolchain": "Hub package.json pins Wrangler 4.152.0; CI executes npm ci, npm run audit, npm run check, npm test, npm run build (wrangler deploy --dry-run --outdir dist), browser tests, then candidate export.",
+    "candidateExportCommand": "EXPORT_CANDIDATE=true EXPECTED_GO_SOURCE_SHA=5d44e9e150cadd3cd3d120c05f059f216905281a EXPECTED_HUB_SOURCE_SHA=$CI_COMMIT_SHA node scripts/export-approved-artifact.mjs",
+    "manualReleaseJob": "remained manual and was not run"
   },
   "hubCandidateArtifact": {
+    "artifactJobId": 17618040534,
     "artifactPath": "candidate-export/entry.js",
-    "jobId": 17617534376,
-    "bytes": 320293,
-    "completeContiguousRanges": [
+    "reportedTotalBytes": 320293,
+    "retrievedRanges": [
       {
         "start": 0,
         "end": 200000,
@@ -48,92 +60,140 @@
         "bytes": 120293
       }
     ],
+    "contiguous": true,
     "complete": true,
-    "runtimeSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
-    "shaMatchesCandidateManifestAndJobLog": true,
+    "independentlyComputedSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
+    "matchesCandidateManifestAndCIExportSummary": true,
+    "syntaxCheck": "node --check passed",
     "candidateManifest": {
       "artifactPath": "candidate-export/manifest.json",
       "bytes": 4417,
       "sha256": "7546b7fbaef3986b6ec5c7d489a3a325705ac2927a7dc0a87d6217215b860b34",
       "status": "CANDIDATE_NOT_APPROVED",
       "releaseApproved": false,
-      "productionVerified": false
-    },
-    "declaredSources": {
-      "hub": "6f0320b3783c65b26b91fcdf2186bef9062af701",
-      "go": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee"
-    },
-    "sourcePinMatch": false,
-    "mismatch": "Candidate manifest declares GO a63e4fddf4c982d8e9d8e722542f649cc8e51cee, while PR #55 pins GO 5d44e9e150cadd3cd3d120c05f059f216905281a. Retain as CI evidence only; do not package or present it as the PR #55 paired candidate.",
-    "ciRun": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41042035216"
-  },
-  "distEntryArtifactRetrieval": {
-    "artifactPath": "dist/entry.js",
-    "reportedTotalBytes": 836095,
-    "contiguousPrefixBytes": 320293,
-    "contiguousPrefixSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
-    "subsequentRangeAt320293ReturnedEmpty": true,
-    "note": "This direct path could not be fully paged. The complete candidate-export/entry.js from the same exact job was retrieved separately in two exact ranges and matched the CI candidate manifest. Its source-pin mismatch still blocks pairing."
-  },
-  "independentOfflineBuilds": {
-    "goAtCandidateManifestPin": {
-      "sourceSha": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee",
-      "runtimeBytes": 181565,
-      "runtimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
-      "purpose": "CI evidence only; not the PR #55 paired GO source."
-    },
-    "goAtPR55Pin": {
-      "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
-      "runtimeBytes": 181565,
-      "runtimeSha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45",
-      "purpose": "Exact local GO dry-run build for the intended paired source pin."
+      "productionVerified": false,
+      "hubSourceSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+      "goSourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "goSourceConfigBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9",
+      "declaredCiRun": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41060198662"
     }
   },
-  "invalidatedLocalBundle": {
-    "path": "/data/recovery-candidate/go-hub-bundle.INVALID-source-mismatch-a63e4fdd-20261031.json",
-    "bytes": 717911,
-    "sha256": "0f15e4ae61ec224d0547ca7ebe714578234a5d1eb4acd79cc477884acd3dcad9",
-    "sources": {
-      "go": "a63e4fddf4c982d8e9d8e722542f649cc8e51cee",
-      "hub": "6f0320b3783c65b26b91fcdf2186bef9062af701"
+  "goBuildEvidence": {
+    "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+    "configBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9",
+    "toolchain": {
+      "node": "v24.22.1",
+      "npm": "11.19.1",
+      "wrangler": "4.152.0"
     },
-    "classification": "INVALID_SOURCE_PIN_MISMATCH_NOT_A_PAIRED_CANDIDATE",
-    "committedOrUploaded": false,
-    "restoreEvidenceAccepted": false
+    "command": ".github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir /data/recovery-candidate/go-build-exact-5d44 (Cloudflare credentials unset)",
+    "result": "dry-run build passed; no deployment performed",
+    "runtime": {
+      "bytes": 181565,
+      "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45"
+    },
+    "staticInputsSha256": {
+      "_headers": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8",
+      "icon.svg": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7",
+      "index.html": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473",
+      "manifest.webmanifest": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d",
+      "service-worker.js": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
+    }
   },
-  "previousInvalidAttempt": {
-    "path": "/data/recovery-candidate/go-hub-bundle.INVALID-incomplete.json",
-    "bytes": 712663,
-    "sha256": "cf8321e772d700770495f1d85dfff8e9ed9c2df70cf04256d1e84790ae9798a5",
-    "classification": "INVALID_INCOMPLETE_PARTIAL_HUB_RUNTIME_NOT_A_CANDIDATE",
-    "committedOrUploaded": false
+  "candidateBundle": {
+    "classification": "CANDIDATE_TEST_ONLY_NOT_PRODUCTION_FALLBACK",
+    "localPath": "/data/recovery-candidate/go-hub-candidate-test-go5d44-hub2a63-20261031.json",
+    "sidecarPath": "/data/recovery-candidate/go-hub-candidate-test-go5d44-hub2a63-20261031.json.sha256",
+    "releaseId": "candidate-test-20261031",
+    "format": "go-hub-bundle-v1",
+    "controllerAbi": 2,
+    "sources": {
+      "go": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "hub": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318"
+    },
+    "bytes": 720215,
+    "sha256": "0327c0c8302aba9740530400cbd45e5aab4002d2420d3841253222dbc3a49a42",
+    "builder": {
+      "repository": "pureekangraw-ops/Go-Together",
+      "sourceRef": "PR #56 head ab06080dbec80c7ef32dc2433eee5a69dc6d4396",
+      "script": "scripts/release-bundle.mjs",
+      "scriptSha256": "853e3eab00450167b2bf675302ab5feacf00689403d54344611720dd12e7ddfc",
+      "command": "RELEASE_ID=candidate-test-20261031 RELEASE_GO_SHA=5d44e9e150cadd3cd3d120c05f059f216905281a RELEASE_HUB_SHA=2a63a6e79e0e3f98659741d8ab40b7a9f2387318 node scripts/release-bundle.mjs <exact-GO-runtime> <complete-Hub-candidate-export-entry.js> <GO-static-dir> <candidate-output>"
+    },
+    "fileInputs": [
+      {
+        "path": "go/runtime.js",
+        "bytes": 181565,
+        "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45"
+      },
+      {
+        "path": "hub/runtime.js",
+        "bytes": 320293,
+        "sha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf"
+      },
+      {
+        "path": "go/static/_headers",
+        "bytes": 94,
+        "sha256": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8"
+      },
+      {
+        "path": "go/static/icon.svg",
+        "bytes": 325,
+        "sha256": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7"
+      },
+      {
+        "path": "go/static/index.html",
+        "bytes": 36019,
+        "sha256": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473"
+      },
+      {
+        "path": "go/static/manifest.webmanifest",
+        "bytes": 448,
+        "sha256": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d"
+      },
+      {
+        "path": "go/static/service-worker.js",
+        "bytes": 618,
+        "sha256": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
+      }
+    ]
   },
-  "independentOfflineWork": {
-    "files": [
-      "scripts/verified-artifact.mjs",
-      "tests/verified-artifact.test.mjs"
+  "restoreAcceptance": {
+    "result": "PASS",
+    "type": "local filesystem materialization using the production bundle helper with mock-only GO/Hub config objects",
+    "productionOrCloudflareRestoreTested": false,
+    "isolatedCloudflareEnvironmentVerified": false,
+    "command": "node --input-type=module <inline acceptance script importing validateBundle and materializeBundle>",
+    "checks": [
+      "ABI-2 and exact source pins verified",
+      "bundle digest verified",
+      "all 7 materialized payload files re-hashed against bundle manifest",
+      "mock Wrangler config paths point only to fresh local temp directory",
+      "no external network call or Cloudflare API was made"
     ],
-    "result": "3 focused transfer-integrity tests passed; these are not restore tests and do not rerun the existing recovery guard suite."
+    "materializedPayloadFiles": 7,
+    "generatedMockConfigFiles": 2,
+    "existingGuardSuiteRepeated": false
   },
-  "restoreStatus": {
-    "productionRestoreTested": false,
-    "isolatedCloudflareRestoreTested": false,
-    "acceptedLocalMockRestoreEvidence": false,
-    "note": "No restore evidence is accepted for the a63/6f source-mismatched bundle. A compatible GO 5d44 + Hub 6f candidate bundle must first be produced from an artifact whose paired manifest declares those exact pins; then run a local non-production materialization/restore test and label it as mock evidence."
-  },
-  "blocker": {
-    "description": "The successful integrated Hub job artifact at pipeline 3009728840/job 17617534376 is complete and hash-verified as candidate-export/entry.js (320293 bytes, SHA-256 ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf), but its candidate manifest declares GO source a63e4fddf4c982d8e9d8e722542f649cc8e51cee. PR #55 pins GO source 5d44e9e150cadd3cd3d120c05f059f216905281a. The exact paired source tuple required for this recovery work is not present in this artifact.",
-    "requiredNextStep": "Obtain a successful candidate artifact whose paired manifest explicitly declares GO 5d44e9e150cadd3cd3d120c05f059f216905281a and Hub 6f0320b3783c65b26b91fcdf2186bef9062af701. Then verify full ranges/length/digests and source pins, build a candidate-only ABI-2 bundle, and run local non-production restore/materialization acceptance."
+  "olderInvalidArtifacts": {
+    "a63e4fdd6f0320": "Retained only as superseded CI evidence; manifest source mismatch; local bundle previously marked invalid and not uploaded.",
+    "ae763ce165fd": "Superseded pre-grant pipeline/runtime; not used.",
+    "truncatedAttempt": "Invalid partial runtime; never claimed as complete or usable."
   },
   "productionSeparation": {
     "productionBaselineSourceSha": "UNKNOWN",
+    "productionRollbackReady": false,
     "productionFallbackClaim": false,
     "existingAbi0FallbackReused": false,
     "manifestRecoveryPointerChanged": false,
     "releaseAssetUploaded": false,
     "prepareOrPublishWorkflowRun": false,
+    "manualReleaseJobRun": false,
     "productionDeployment": false,
     "productionBindingsSecretsPermissionsOrD1Changed": false,
-    "pr55Changed": false
-  }
+    "pr55Changed": false,
+    "note": "No prepare/publish workflow was run. The GitLab verify job did execute node scripts/prepare-provider-release.mjs as a normal verification step before candidate export; this was not the manual release job or a publish workflow."
+  },
+  "remainingBlocker": "No owner-attested, exact Production baseline/source has been established, and no genuinely isolated Cloudflare restore environment has been verified. The verified local ABI-2 candidate bundle and mock materialization prove candidate completeness and the local restore code path only; they do not establish Production rollback readiness.",
+  "nextSafeStep": "Obtain owner-provided baseline source/attestation and verify a specifically isolated test environment before any Cloudflare restore test. Keep this candidate local/test-only until those prerequisites are met and separately authorized."
 }

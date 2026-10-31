@@ -46,7 +46,12 @@ jobs:
             exit 1
           fi
           id_token="$(jq -er '.value' "$tmp/oidc.json")"
-          claims="$(cut -d. -f2 <<<"$id_token" | tr '_-' '/+' | base64 -d | jq '{aud,sub,repository,repository_id,ref,event_name,workflow_ref,run_attempt,run_id,exp,iat}')"
+          payload_segment="$(cut -d. -f2 <<<"$id_token" | tr '_-' '/+')"
+          case $((${#payload_segment} % 4)) in
+            2) payload_segment+='==' ;;
+            3) payload_segment+='=' ;;
+          esac
+          claims="$(printf '%s' "$payload_segment" | base64 -d | jq '{aud,sub,repository,repository_id,ref,event_name,workflow_ref,run_attempt,run_id,exp,iat}')"
           echo "Verified OIDC claim fields: ${claims}"
           for phase in go final; do
             request="$(jq -cn --arg requestId "$REQUEST_ID" --arg goVersion "$GO_VERSION" --arg phase "$phase" '{requestId:$requestId,goVersion:$goVersion,phase:$phase}')"

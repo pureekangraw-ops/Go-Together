@@ -4,6 +4,7 @@ import {readOwnerDashboard} from './owner-control.mjs';
 const issuer='https://token.actions.githubusercontent.com';
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const fail=()=>{throw Error('RELEASE_CI_UNAUTHORIZED');};
+const stagingClaims=(p,requestId)=>p.aud==='go-release-staging:'+requestId&&p.sub==='repo:pureekangraw-ops/Go-Together:ref:refs/heads/fix/recovery-guard-tests-20261030'&&p.repository==='pureekangraw-ops/Go-Together'&&p.repository_id==='1411826899'&&p.ref==='refs/heads/fix/recovery-guard-tests-20261030'&&p.event_name==='push'&&p.workflow_ref==='pureekangraw-ops/Go-Together/.github/workflows/recovery-staging-acceptance.yml@refs/heads/fix/recovery-guard-tests-20261030'&&p.run_attempt==='1'&&/^\d+$/.test(p.run_id||'');
 const decode=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
 async function keys(fetcher){
  const r=await fetcher(issuer+'/.well-known/jwks',{redirect:'manual',signal:AbortSignal.timeout(5000)});if(!r.ok)fail();
@@ -16,7 +17,9 @@ export async function goCiAcceptance({authorization,body}={},env={},deps={}){
  try{
   const token=authorization?.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/)?.[1];if(!token||token.length>16000)fail();const parts=token.split('.');
   const h=JSON.parse(new TextDecoder().decode(decode(parts[0]))),p=JSON.parse(new TextDecoder().decode(decode(parts[1]))),now=Math.floor(Date.now()/1000);
-  if(h.alg!=='RS256'||typeof h.kid!=='string'||h.kid.length>128||p.iss!==issuer||p.aud!=='go-release:'+body.requestId||p.sub!=='repo:pureekangraw-ops/Go-Together:environment:go-production'||!Number.isInteger(p.exp)||!Number.isInteger(p.iat)||p.exp<=now||p.exp>now+600||p.iat<now-300||p.iat>now+30||(p.nbf!==undefined&&(!Number.isInteger(p.nbf)||p.nbf>now+30))||p.repository!=='pureekangraw-ops/Go-Together'||p.repository_id!=='1411826899'||p.ref!=='refs/heads/main'||p.event_name!=='workflow_dispatch'||p.workflow_ref!=='pureekangraw-ops/Go-Together/.github/workflows/go-manual-assets-deploy.yml@refs/heads/main'||p.run_attempt!=='1'||!/^\d+$/.test(p.run_id||''))fail();
+  const isStaging=env.RELEASE_CI_MODE==='staging';
+  const claimsOk=isStaging?stagingClaims(p,body.requestId):p.aud==='go-release:'+body.requestId&&p.sub==='repo:pureekangraw-ops/Go-Together:environment:go-production'&&p.repository==='pureekangraw-ops/Go-Together'&&p.repository_id==='1411826899'&&p.ref==='refs/heads/main'&&p.event_name==='workflow_dispatch'&&p.workflow_ref==='pureekangraw-ops/Go-Together/.github/workflows/go-manual-assets-deploy.yml@refs/heads/main'&&p.run_attempt==='1'&&/^\d+$/.test(p.run_id||'');
+  if(h.alg!=='RS256'||typeof h.kid!=='string'||h.kid.length>128||p.iss!==issuer||!claimsOk||!Number.isInteger(p.exp)||!Number.isInteger(p.iat)||p.exp<=now||p.exp>now+600||p.iat<now-300||p.iat>now+30||(p.nbf!==undefined&&(!Number.isInteger(p.nbf)||p.nbf>now+30)))fail();
   const doc=await keys(deps.fetcher||fetch),matches=doc.keys?.filter(k=>k.kid===h.kid&&k.kty==='RSA');if(matches?.length!==1)fail();
   const key=await crypto.subtle.importKey('jwk',matches[0],{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
   if(!await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,decode(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1])))fail();

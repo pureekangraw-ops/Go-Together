@@ -16,6 +16,20 @@ on:
       original_request_id:
         type: string
         required: false
+      rollback_mode:
+        type: choice
+        options: [artifact, retained_versions]
+        default: artifact
+        required: true
+      rollback_go_version:
+        type: string
+        required: false
+      rollback_hub_version:
+        type: string
+        required: false
+      limited_rollback_ack:
+        type: string
+        required: false
       expected_sha:
         type: string
         required: true
@@ -41,6 +55,10 @@ env:
   RELEASE_ID: ${{ inputs.release_id }}
   RELEASE_REQUEST_ID: ${{ inputs.request_id }}
   RELEASE_ORIGINAL_REQUEST_ID: ${{ inputs.original_request_id }}
+  RELEASE_ROLLBACK_MODE: ${{ inputs.rollback_mode }}
+  RELEASE_ROLLBACK_GO_VERSION: ${{ inputs.rollback_go_version }}
+  RELEASE_ROLLBACK_HUB_VERSION: ${{ inputs.rollback_hub_version }}
+  RELEASE_LIMITED_ROLLBACK_ACK: ${{ inputs.limited_rollback_ack }}
   RELEASE_GO_SHA: ${{ inputs.expected_sha }}
   RELEASE_HUB_SHA: ${{ inputs.hub_sha }}
   RELEASE_GO_BASELINE: ${{ inputs.go_baseline }}
@@ -86,28 +104,28 @@ jobs:
           GITLAB_SOURCE_TOKEN: ${{ secrets.GITLAB_SOURCE_TOKEN }}
         run: node scripts/paired-release-runner.mjs fetch-infrastructure
       - uses: actions/checkout@v4
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         with:
           ref: ${{ inputs.expected_sha }}
           path: sources/go
           persist-credentials: false
       - name: Verify exact GO source
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         run: node scripts/paired-release-runner.mjs source
       - name: Fetch Hub source from its exact GitLab commit (read only)
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         env:
           GITLAB_SOURCE_TOKEN: ${{ secrets.GITLAB_SOURCE_TOKEN }}
         run: node scripts/paired-release-runner.mjs fetch-hub
       - name: Test GO with no deployment credentials
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         working-directory: sources/go
         run: |
           node scripts/assert-current-routing.mjs
           node --test --test-isolation=none tests/*.test.mjs
           ../../.github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir "$RUNNER_TEMP/go-build"
       - name: Test Hub with no deployment or provider credentials
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         working-directory: sources/hub
         run: |
           npm ci > "$RUNNER_TEMP/hub-install.log" 2>&1 || { echo 'HUB_INSTALL_FAILED'; exit 1; }
@@ -116,10 +134,10 @@ jobs:
           npm run build > "$RUNNER_TEMP/hub-build.log" 2>&1 || { echo 'HUB_BUILD_FAILED'; exit 1; }
           echo 'HUB_PINNED_SOURCE_TESTS_AND_BUILD_PASSED'
       - name: Package tested runtime and assets; exclude infrastructure and credentials
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         run: node scripts/release-bundle.mjs "$RUNNER_TEMP/go-build/hub-entry.js" sources/hub/dist/entry.js sources/go/static go-hub-bundle.json
       - name: Verify the exact bundle against current infrastructure without credentials
-        if: inputs.action != 'rollback'
+        if: inputs.action != 'rollback' || inputs.rollback_mode == 'retained_versions'
         run: node scripts/paired-release-runner.mjs bundle-check
       - name: Prepare a durable draft release artifact (no deployment)
         if: inputs.action == 'prepare'
@@ -134,11 +152,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/paired-release-runner.mjs deploy
       - name: Recover approved earlier code and assets using CURRENT infrastructure
-        if: inputs.action == 'rollback'
+        if: inputs.action == 'rollback' && inputs.rollback_mode == 'artifact'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/paired-release-runner.mjs rollback
+      - name: Activate explicitly retained Worker versions (limited; no functional acceptance)
+        if: inputs.action == 'rollback' && inputs.rollback_mode == 'retained_versions'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/paired-release-runner.mjs rollback
       - name: Reconcile failure and recover only this run's changes
         if: failure() && inputs.action == 'start'

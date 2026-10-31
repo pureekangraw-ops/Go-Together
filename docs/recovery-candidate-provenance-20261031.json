@@ -1,0 +1,304 @@
+{
+  "recordType": "recovery-candidate-provenance-investigation",
+  "status": "ABI2_CANDIDATE_BUILT_LOCAL_MOCK_MATERIALIZATION_PASS_PRODUCTION_BASELINE_UNKNOWN",
+  "classification": "A complete, hash-verified ABI-2 candidate/test bundle was built from exact named GO and Hub source pins. Local filesystem materialization using mock configs passed. This is not a Production fallback or rollback-ready artifact; the Production source baseline remains unknown and no isolated Cloudflare restore was run.",
+  "candidatePair": {
+    "go": {
+      "repository": "pureekangraw-ops/Go-Together",
+      "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "basis": "GO source pin required by PR #55",
+      "wranglerConfigBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9"
+    },
+    "hub": {
+      "repository": "pureekangraw/hubstation",
+      "sourceSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+      "basis": "latest integrated Project-grant candidate on existing MR !10 branch; includes candidate-only paired GO pin update"
+    },
+    "note": "PR #55 was not changed. Its own manifest still names the earlier Hub source d0f55eb7137df2c3214ab0dfdcc083defc67e044. This local candidate uses PR #55's exact GO pin plus the newer integrated Hub MR !10 head; it must not be described as the unchanged PR #55 manifest's original full pair."
+  },
+  "hubCandidatePinChange": {
+    "mergeRequest": 10,
+    "url": "https://gitlab.com/pureekangraw/hubstation/-/merge_requests/10",
+    "branch": "fix/storage-mcp-deny-no-project-grant-20261030",
+    "previousHead": "6f0320b3783c65b26b91fcdf2186bef9062af701",
+    "head": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+    "commitTitle": "ci(candidate): pin paired GO source to PR55 SHA",
+    "changedFiles": [
+      ".gitlab-ci.yml",
+      "releases/go-provider-candidate.json"
+    ],
+    "changeSummary": "Updated only the candidate GO source pin to exact GO 5d44e9e... and CI provenance reference. No runtime source, release workflow semantics, main/prepare/publish path, or Production config was changed.",
+    "draft": true
+  },
+  "hubCiEvidence": {
+    "pipelineId": 3009791997,
+    "pipelineUrl": "https://gitlab.com/pureekangraw/hubstation/-/pipelines/3009791997",
+    "pipelineStatus": "success",
+    "pipelineSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+    "successfulVerifyJobId": 17618040534,
+    "successfulVerifyJobUrl": "https://gitlab.com/pureekangraw/hubstation/-/jobs/17618040534",
+    "successfulVerifyJobStatus": "success",
+    "retryNote": "The initial verify attempt in this pipeline failed at the browser panel timeout; the retry of the same verify job completed successfully. Pipeline head equals the MR !10 head above.",
+    "ciImage": "node:24-bookworm-slim",
+    "toolchain": "Hub package.json pins Wrangler 4.152.0; CI executes npm ci, npm run audit, npm run check, npm test, npm run build (wrangler deploy --dry-run --outdir dist), browser tests, then candidate export.",
+    "candidateExportCommand": "EXPORT_CANDIDATE=true EXPECTED_GO_SOURCE_SHA=5d44e9e150cadd3cd3d120c05f059f216905281a EXPECTED_HUB_SOURCE_SHA=$CI_COMMIT_SHA node scripts/export-approved-artifact.mjs",
+    "manualReleaseJob": "remained manual and was not run"
+  },
+  "hubCandidateArtifact": {
+    "artifactJobId": 17618040534,
+    "artifactPath": "candidate-export/entry.js",
+    "reportedTotalBytes": 320293,
+    "retrievedRanges": [
+      {
+        "start": 0,
+        "end": 200000,
+        "bytes": 200000
+      },
+      {
+        "start": 200000,
+        "end": 320293,
+        "bytes": 120293
+      }
+    ],
+    "contiguous": true,
+    "complete": true,
+    "independentlyComputedSha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf",
+    "matchesCandidateManifestAndCIExportSummary": true,
+    "syntaxCheck": "node --check passed",
+    "candidateManifest": {
+      "artifactPath": "candidate-export/manifest.json",
+      "bytes": 4417,
+      "sha256": "7546b7fbaef3986b6ec5c7d489a3a325705ac2927a7dc0a87d6217215b860b34",
+      "status": "CANDIDATE_NOT_APPROVED",
+      "releaseApproved": false,
+      "productionVerified": false,
+      "hubSourceSha": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318",
+      "goSourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "goSourceConfigBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9",
+      "declaredCiRun": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41060198662"
+    }
+  },
+  "goBuildEvidence": {
+    "sourceSha": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+    "configBlobSha": "4850c2cff4d7b3f7708674c0e6d00d190bfab7f9",
+    "toolchain": {
+      "node": "v24.22.1",
+      "npm": "11.19.1",
+      "wrangler": "4.152.0"
+    },
+    "command": ".github/runner/node_modules/.bin/wrangler deploy --config wrangler.jsonc --dry-run --outdir /data/recovery-candidate/go-build-exact-5d44 (Cloudflare credentials unset)",
+    "result": "dry-run build passed; no deployment performed",
+    "runtime": {
+      "bytes": 181565,
+      "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45"
+    },
+    "staticInputsSha256": {
+      "_headers": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8",
+      "icon.svg": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7",
+      "index.html": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473",
+      "manifest.webmanifest": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d",
+      "service-worker.js": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
+    }
+  },
+  "candidateBundle": {
+    "classification": "CANDIDATE_TEST_ONLY_NOT_PRODUCTION_FALLBACK",
+    "localPath": "/data/recovery-candidate/go-hub-candidate-test-go5d44-hub2a63-20261031.json",
+    "sidecarPath": "/data/recovery-candidate/go-hub-candidate-test-go5d44-hub2a63-20261031.json.sha256",
+    "releaseId": "candidate-test-20261031",
+    "format": "go-hub-bundle-v1",
+    "controllerAbi": 2,
+    "sources": {
+      "go": "5d44e9e150cadd3cd3d120c05f059f216905281a",
+      "hub": "2a63a6e79e0e3f98659741d8ab40b7a9f2387318"
+    },
+    "bytes": 720215,
+    "sha256": "0327c0c8302aba9740530400cbd45e5aab4002d2420d3841253222dbc3a49a42",
+    "builder": {
+      "repository": "pureekangraw-ops/Go-Together",
+      "sourceRef": "PR #56 head ab06080dbec80c7ef32dc2433eee5a69dc6d4396",
+      "script": "scripts/release-bundle.mjs",
+      "scriptSha256": "853e3eab00450167b2bf675302ab5feacf00689403d54344611720dd12e7ddfc",
+      "command": "RELEASE_ID=candidate-test-20261031 RELEASE_GO_SHA=5d44e9e150cadd3cd3d120c05f059f216905281a RELEASE_HUB_SHA=2a63a6e79e0e3f98659741d8ab40b7a9f2387318 node scripts/release-bundle.mjs <exact-GO-runtime> <complete-Hub-candidate-export-entry.js> <GO-static-dir> <candidate-output>"
+    },
+    "fileInputs": [
+      {
+        "path": "go/runtime.js",
+        "bytes": 181565,
+        "sha256": "4a61695ba7e195ac446e2d8bb732ca8960c00f20c2852c0ff78c691902a46c45"
+      },
+      {
+        "path": "hub/runtime.js",
+        "bytes": 320293,
+        "sha256": "ab1d0197eebd22fd127fb57431956f76656d729ceaf1de903d48c8016ca3accf"
+      },
+      {
+        "path": "go/static/_headers",
+        "bytes": 94,
+        "sha256": "86016e9bc2eec3c6fa2d4b6e405274489c316396349853f3e3483ddf50e84fc8"
+      },
+      {
+        "path": "go/static/icon.svg",
+        "bytes": 325,
+        "sha256": "9e000f4b420305a4b7da1ecf61682334008326c1fb481871f5ce93d8190d81f7"
+      },
+      {
+        "path": "go/static/index.html",
+        "bytes": 36019,
+        "sha256": "6757067f6977da8dbaf98e3672371352b900ebede9731b4a02e41b7e99388473"
+      },
+      {
+        "path": "go/static/manifest.webmanifest",
+        "bytes": 448,
+        "sha256": "22a0f7c05a6c09808df5e7235bc9853938fbc1c6440911c709072a0f8e5b338d"
+      },
+      {
+        "path": "go/static/service-worker.js",
+        "bytes": 618,
+        "sha256": "2612fb25d2e3cdaf4fd890efe6da053e7b3cd4c95947e68ea03783ef897427e8"
+      }
+    ]
+  },
+  "restoreAcceptance": {
+    "result": "PASS",
+    "type": "local filesystem materialization using the production bundle helper with mock-only GO/Hub config objects",
+    "productionOrCloudflareRestoreTested": false,
+    "isolatedCloudflareEnvironmentVerified": false,
+    "command": "node --input-type=module <inline acceptance script importing validateBundle and materializeBundle>",
+    "checks": [
+      "ABI-2 and exact source pins verified",
+      "bundle digest verified",
+      "all 7 materialized payload files re-hashed against bundle manifest",
+      "mock Wrangler config paths point only to fresh local temp directory",
+      "no external network call or Cloudflare API was made"
+    ],
+    "materializedPayloadFiles": 7,
+    "generatedMockConfigFiles": 2,
+    "existingGuardSuiteRepeated": false
+  },
+  "olderInvalidArtifacts": {
+    "a63e4fdd6f0320": "Retained only as superseded CI evidence; manifest source mismatch; local bundle previously marked invalid and not uploaded.",
+    "ae763ce165fd": "Superseded pre-grant pipeline/runtime; not used.",
+    "truncatedAttempt": "Invalid partial runtime; never claimed as complete or usable."
+  },
+  "productionSeparation": {
+    "productionBaselineSourceSha": "UNKNOWN",
+    "productionRollbackReady": false,
+    "productionFallbackClaim": false,
+    "existingAbi0FallbackReused": false,
+    "manifestRecoveryPointerChanged": false,
+    "releaseAssetUploaded": false,
+    "prepareOrPublishWorkflowRun": false,
+    "manualReleaseJobRun": false,
+    "productionDeployment": false,
+    "productionBindingsSecretsPermissionsOrD1Changed": false,
+    "pr55Changed": false,
+    "note": "No prepare/publish workflow was run. The GitLab verify job did execute node scripts/prepare-provider-release.mjs as a normal verification step before candidate export; this was not the manual release job or a publish workflow."
+  },
+  "remainingBlocker": "The ABI-2 candidate remains local/unpublished and its source pair does not match the existing release/recovery manifest. Current recovery-test Hub version 5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33 is active at 100%, but its Cloudflare metadata does not identify a source commit, tag, or candidate packet; authorization is unknown. The reported staging version-switch/switchback and GO acceptance evidence do not prove restoration from this bundle or Production rollback. Production baseline source SHA remains unknown; this is not a Production fallback or rollback-ready artifact.",
+  "nextSafeStep": "Await explicit owner approval before any Draft asset publication or manifest/recovery-pointer change. Keep guards and current manifest unchanged; reconcile the source/packet provenance for Hub version 4 and the ABI-2 candidate before making any release or recovery claim.",
+  "stagingVersionSwitchEvidence": {
+    "scope": "Read-only metadata for the existing recovery-test staging Hub; version-switch/switchback and acceptance evidence only.",
+    "worker": "ygg-connection-hub-v2-recovery-test-20261031",
+    "currentDeployment": {
+      "deploymentId": "228114d1-ab6d-4d7d-bc0e-376e2096b144",
+      "createdOn": "2026-10-31T01:47:39.105459Z",
+      "authorEmail": "pureekangraw@gmail.com",
+      "source": "api",
+      "annotations": {
+        "workers/message": "Automatic deployment on upload.",
+        "workers/triggered_by": "upload"
+      },
+      "traffic": [
+        {
+          "versionId": "5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33",
+          "percentage": 100
+        }
+      ]
+    },
+    "currentVersion": {
+      "id": "5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33",
+      "number": 4,
+      "createdOn": "2026-10-31T01:47:39.105459Z",
+      "metadataSource": "api",
+      "authorEmail": "pureekangraw@gmail.com",
+      "scriptEtag": "d9c861982de83934ce8bc3888002c2d532c034bba9a3c9b4e9fda35e18c462c2",
+      "annotations": {
+        "workers/triggered_by": "upload"
+      },
+      "commitSha": null,
+      "tag": null,
+      "bindingNamesAddedComparedWithVersion3": [
+        "CF_ACCESS_AUD",
+        "CF_ACCESS_TEAM_DOMAIN"
+      ]
+    },
+    "previousCandidateVersion": {
+      "id": "a2f1a724-60a9-4b57-a4a9-7fcba1ed50d6",
+      "number": 3,
+      "createdOn": "2026-10-31T00:53:13.49904Z",
+      "metadataSource": "api",
+      "scriptEtag": "d9c861982de83934ce8bc3888002c2d532c034bba9a3c9b4e9fda35e18c462c2",
+      "annotations": {
+        "workers/alias": "stage-b778",
+        "workers/commit_sha": "b77869d1b85789d585aaab72f5fcdc57bd92ab19",
+        "workers/message": "Isolated staging-only recovery candidate; Hub b77869d and GO c528ce3",
+        "workers/tag": "recovery-staging-20261031-b77869d",
+        "workers/triggered_by": "version_upload"
+      },
+      "scriptEtagEqualToVersion4": true
+    },
+    "switchbackDeployments": [
+      {
+        "deploymentId": "09cdbf42-9f29-46aa-8374-a8c38c70ed17",
+        "createdOn": "2026-10-31T01:04:01.123448Z",
+        "versionId": "eef6df0e-5d6a-4b06-b46f-fa05819404c1",
+        "message": "STAGE-ONLY rollback rehearsal to prior isolated version"
+      },
+      {
+        "deploymentId": "6b08967c-2825-4802-8fb2-191e9e963227",
+        "createdOn": "2026-10-31T01:04:02.912455Z",
+        "versionId": "a2f1a724-60a9-4b57-a4a9-7fcba1ed50d6",
+        "message": "STAGE-ONLY restore after prior-version rollback rehearsal"
+      }
+    ],
+    "goStagingAcceptance": {
+      "runId": 41152647873,
+      "url": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41152647873",
+      "checkRunConclusion": "success",
+      "startedAt": "2026-10-31T00:54:12Z",
+      "completedAt": "2026-10-31T00:54:18Z",
+      "goVersion": "d0fa9e67-f24f-4273-8b7a-59de16c244a6",
+      "reportedChecks": [
+        "GO readback verified",
+        "Pending preserved",
+        "Private RPC verified"
+      ],
+      "scopeLimit": "Staging acceptance only; it does not establish acceptance of Hub version 4, restore from the ABI-2 bundle, or Production rollback."
+    },
+    "authorizationAssessment": "UNKNOWN: Cloudflare metadata identifies source=api and the author account but contains no explicit owner approval record. Version 4 has no commit SHA/tag annotation; equal script ETag to version 3 does not establish source or packet provenance."
+  },
+  "cloudflareApiSemantics": {
+    "references": [
+      {
+        "title": "Cloudflare Workers API \u2014 List Versions",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/",
+        "relevance": "Defines version metadata fields including author_email, author_id, created_on, and source; source is the source of the version upload."
+      },
+      {
+        "title": "Cloudflare Workers API \u2014 Get Worker Script Version",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/",
+        "relevance": "Defines version resources, including bindings and script.etag; etag is the hashed script content."
+      },
+      {
+        "title": "Cloudflare Workers API \u2014 Deployments",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/",
+        "relevance": "Defines deployment version allocations, author_email, created_on, and annotations; workers/message is human-readable and workers/triggered_by identifies the triggering operation."
+      }
+    ],
+    "interpretation": [
+      "metadata.source=api identifies the upload source category, not a Git commit or owner approval.",
+      "Equal script ETags identify equal hashed script content, not equal bindings, manifest pins, or release-packet provenance.",
+      "The documented version/deployment metadata fields contain no explicit owner-approval attestation; authorization for Hub version 4 remains UNKNOWN."
+    ]
+  }
+}

@@ -61,8 +61,48 @@ function receiptArtifacts(x){
   if(!Array.isArray(refs)||artifacts.some(a=>!object(a)||!refs.includes(a.ref)||
     !/^[a-f0-9]{64}$/.test(a.sha256||'')||!Number.isSafeInteger(a.bytes)||a.bytes<1||a.bytes>8*1024*1024||
     ((a.width!==undefined||a.height!==undefined)&&(!Number.isSafeInteger(a.width)||a.width<1||a.width>4096||!Number.isSafeInteger(a.height)||a.height<1||a.height>4096))))return null;
+  if(x.result?.ownerDomain==='CODE'){
+    const a=artifacts[0];
+    if(artifacts.length!==1||!UUID.test(x.requestId||'')||
+      a.receiptId!==x.receiptId||a.requestId!==x.requestId||
+      a.workId!==x.workId||a.checkpointId!==x.checkpointId||
+      !/^[a-f0-9]{64}$/.test(a.artifactId||'')||
+      !/^[A-Za-z0-9._-]{1,180}$/.test(a.filename||'')||
+      !['text/javascript; charset=utf-8','application/javascript',
+        'text/html; charset=utf-8','text/html','application/octet-stream'].includes(a.mediaType)||
+      !Number.isSafeInteger(a.byteLength)||a.byteLength<1||a.byteLength>65536||
+      a.bytes!==a.byteLength)return null;
+  }
   return artifacts.map(a=>({ref:a.ref,sha256:a.sha256,bytes:a.bytes,
+    ...(a.byteLength===undefined?{}:{byteLength:a.byteLength}),
+    ...(a.filename===undefined?{}:{filename:a.filename,mediaType:a.mediaType}),
+    ...(a.artifactId===undefined?{}:{artifactId:a.artifactId}),
+    ...(a.receiptId===undefined?{}:{receiptId:a.receiptId}),
+    ...(a.requestId===undefined?{}:{requestId:a.requestId}),
+    ...(a.workId===undefined?{}:{workId:a.workId}),
+    ...(a.checkpointId===undefined?{}:{checkpointId:a.checkpointId}),
     ...(a.width===undefined?{}:{width:a.width,height:a.height})}));
+}
+const CODE_STEPS=['INSPECT_REPOSITORY','PLAN_CHANGE','EXECUTE_CHANGE','RUN_TESTS',
+  'BUILD','INSPECT_ARTIFACT','CI_CHECKPOINT','DEPLOY','RUNTIME_VERIFY'];
+function validCodeExecutionProof(x,artifacts){
+  const proof=x?.executionProof,artifact=artifacts?.[0];
+  return x?.result?.ownerDomain==='CODE'&&artifact&&
+    proof?.schema==='FACTORY_CODE_EXECUTION_PROOF_V1'&&
+    proof.receiptId===x.receiptId&&proof.requestId===x.requestId&&
+    proof.workId===x.workId&&proof.checkpointId===x.checkpointId&&
+    proof.artifactId===artifact.artifactId&&proof.artifactRef===artifact.ref&&
+    proof.executionState==='COMPLETE'&&proof.returnState==='RETURNED'&&
+    typeof proof.runId==='string'&&proof.runId.length>0&&
+    typeof proof.attemptId==='string'&&proof.attemptId.length>0&&
+    typeof proof.executorRef==='string'&&proof.executorRef.startsWith('code-machine://')&&
+    /^[a-f0-9]{64}$/.test(proof.sourceSha||'')&&proof.runtimeSha===proof.sourceSha&&
+    typeof proof.runtimeRef==='string'&&proof.runtimeRef.length>0&&
+    typeof proof.deploymentRef==='string'&&proof.deploymentRef.length>0&&
+    Array.isArray(proof.stepEvidence)&&proof.stepEvidence.length===CODE_STEPS.length&&
+    proof.stepEvidence.every((step,index)=>step?.step===CODE_STEPS[index]&&
+      (index===0?['READY','PASS']:['PASS','SUCCESS','VERIFIED']).includes(step.status)&&
+      typeof step.evidenceRef==='string'&&step.evidenceRef.length>0);
 }
 async function boundedProbeJson(response){
   if(!response.body)return null;
@@ -167,11 +207,16 @@ export async function factoryDirectReadback(env,{receiptId}={}){
     const x=r.data;
     const artifacts=receiptArtifacts(x);
     if(artifacts===null)return failure('DIRECT_RECEIPT_UNVERIFIED',{httpStatus:r.httpStatus});
+    if(x.result?.ownerDomain==='CODE'&&
+      (!UUID.test(x.requestId||'')||!validCodeExecutionProof(x,artifacts)))
+      return failure('DIRECT_CODE_EXECUTION_UNVERIFIED',{httpStatus:r.httpStatus});
     const verified=x.domainVerified===true&&x.domainCompleted===true;
     return {ok:true,status:'GO_RECEIPT_READ',readOnly:true,executed:false,
       verified,jobStatus:verified?'COMPLETED':x.status==='FAILED'?'FAILED':'UNKNOWN',
       reason:safeJobReason(x.reason),
-      jobId:x.workId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
+      requestId:x.requestId||null,jobId:x.workId,workId:x.workId,
+      checkpointId:x.checkpointId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
+      ...(x.result?.ownerDomain==='CODE'?{executionProof:x.executionProof}:{}),
       ...(typeof x.observedAt==='string'&&Number.isFinite(Date.parse(x.observedAt))?{observedAt:x.observedAt}:{}),
       artifactRefs:x.result?.artifactRefs||[],evidenceRefs:x.result?.evidenceRefs||[],
       ...(artifacts===undefined?{}:{artifacts}),
@@ -322,7 +367,8 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
     const response=await signed(env,'POST','/station/go-artifact',{receiptId,artifactRef});
     if(!response.ok)return failure('DIRECT_ARTIFACT_UNAVAILABLE',{httpStatus:response.status});
     const bytes=await response.arrayBuffer();
-    if(bytes.byteLength>524288)return failure('ARTIFACT_EXCEEDS_MCP_LIMIT');
+    const codeArtifact=receipt.domain==='CODE';
+    if(bytes.byteLength>(codeArtifact?65536:524288))return failure('ARTIFACT_EXCEEDS_MCP_LIMIT');
     const hash=await digest(bytes);
     const manifest=receipt.artifacts?.find(a=>a.ref===artifactRef);
     if(response.headers.get('x-factory-artifact-sha256')!==hash||
@@ -331,6 +377,17 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
       (manifest&&(manifest.sha256!==hash||manifest.bytes!==bytes.byteLength)))
       return failure('ARTIFACT_INTEGRITY_MISMATCH');
     const mime=response.headers.get('content-type');
+    if(codeArtifact&&(!manifest||
+      response.headers.get('x-factory-request-id')!==receipt.requestId||
+      response.headers.get('x-factory-work-id')!==receipt.workId||
+      response.headers.get('x-factory-checkpoint-id')!==receipt.checkpointId||
+      response.headers.get('x-factory-artifact-id')!==manifest.artifactId||
+      response.headers.get('x-factory-artifact-filename')!==manifest.filename||
+      response.headers.get('x-factory-artifact-byte-length')!==String(bytes.byteLength)||
+      manifest.requestId!==receipt.requestId||manifest.workId!==receipt.workId||
+      manifest.checkpointId!==receipt.checkpointId||manifest.receiptId!==receiptId||
+      manifest.byteLength!==bytes.byteLength||manifest.mediaType!==mime))
+      return failure('CODE_ARTIFACT_CORRELATION_UNVERIFIED');
     if(!['image/png','text/javascript; charset=utf-8','text/html; charset=utf-8','application/octet-stream','application/json'].includes(mime))
       return failure('ARTIFACT_MIME_UNEXPECTED');
     if(artifactRef.startsWith('r2://factory/records/logic/workshop/')) {
@@ -360,7 +417,12 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
     const u=new Uint8Array(bytes);let bin='';
     for(let i=0;i<u.length;i+=16384)bin+=String.fromCharCode(...u.slice(i,i+16384));
     return {ok:true,status:'ARTIFACT_BYTES_DELIVERED',executed:false,readOnly:true,
-      receiptId,jobId:receipt.jobId,artifactRef,mime,bytes:u.length,sha256:hash,base64:btoa(bin)};
+      deliveredToWork:false,
+      requestId:receipt.requestId,receiptId,jobId:receipt.jobId,workId:receipt.workId,
+      checkpointId:receipt.checkpointId,artifactRef,mime,
+      ...(codeArtifact?{artifactId:manifest.artifactId,filename:manifest.filename,
+        mediaType:manifest.mediaType,byteLength:u.length}:{}),
+      bytes:u.length,sha256:hash,base64:btoa(bin)};
   }catch{return failure('DIRECT_ARTIFACT_UNAVAILABLE');}
 }
 export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approved=false){
@@ -396,7 +458,8 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
       jobStatus:'UNKNOWN',verified:false,httpStatus:r.httpStatus});
     if(!r.ok||x.status!=='COMPLETED'||x.requestId!==id||
-      !JOB.test(x.jobId||'')||!RECEIPT.test(x.receiptId||''))
+      !JOB.test(x.jobId||'')||!RECEIPT.test(x.receiptId||'')||
+      x.workId!==x.jobId||x.checkpointId!=='CP-'+x.jobId)
       return failure('GO_JOB_EFFECT_UNVERIFIED',{requestId:id,
         jobId:JOB.test(x.jobId||'')?x.jobId:null,
         receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
@@ -404,7 +467,8 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
         ...(x.readback?.machineResult?.workshopResult?{workshopResult:x.readback.machineResult.workshopResult}:{})});
     const back=await factoryDirectReadback(env,{receiptId:x.receiptId});
     if(!back.ok||!back.verified||back.jobId!==x.jobId||
-      back.sourceSha!==h.sourceSha||back.domain!==domain)
+      back.sourceSha!==h.sourceSha||back.domain!==domain||
+      back.requestId!==id||back.workId!==x.workId||back.checkpointId!==x.checkpointId)
       return failure('GO_RECEIPT_UNVERIFIED',{requestId:id,jobId:x.jobId,receiptId:x.receiptId});
     if(domain==='PROOF') {
       const report=back.proofResult,ref=back.reportRef;
@@ -467,10 +531,15 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
         executed:true,deliveredBytes:false};
     }
     return {ok:true,status:'GO_FACTORY_DELIVERABLE_READY',requestId:id,
-      jobId:x.jobId,receiptId:x.receiptId,domain,sourceSha:h.sourceSha,
+      jobId:x.jobId,workId:x.workId,checkpointId:x.checkpointId,
+      receiptId:x.receiptId,domain,sourceSha:h.sourceSha,
+      ...(domain==='CODE'?{executionProof:back.executionProof}:{}),
       artifactRef:ref,evidenceRefs:back.evidenceRefs,
       artifact:{mime:artifact.mime,bytes:artifact.bytes,sha256:artifact.sha256,
-        base64:artifact.base64},executed:true,deliveredBytes:true};
+        ...(domain==='CODE'?{artifactId:artifact.artifactId,filename:artifact.filename,
+          mediaType:artifact.mediaType,byteLength:artifact.byteLength}:{}),
+        base64:artifact.base64},executed:true,executionVerified:domain==='CODE',
+      artifactBytesVerified:true,deliveredBytes:true,deliveredToWork:false};
   }catch{return failure('GO_JOB_TRANSPORT_UNCERTAIN',{requestId:id});}
 }
 

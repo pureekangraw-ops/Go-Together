@@ -194,6 +194,87 @@
     "pr55Changed": false,
     "note": "No prepare/publish workflow was run. The GitLab verify job did execute node scripts/prepare-provider-release.mjs as a normal verification step before candidate export; this was not the manual release job or a publish workflow."
   },
-  "remainingBlocker": "No owner-attested, exact Production baseline/source has been established, and no genuinely isolated Cloudflare restore environment has been verified. The verified local ABI-2 candidate bundle and mock materialization prove candidate completeness and the local restore code path only; they do not establish Production rollback readiness.",
-  "nextSafeStep": "Obtain owner-provided baseline source/attestation and verify a specifically isolated test environment before any Cloudflare restore test. Keep this candidate local/test-only until those prerequisites are met and separately authorized."
+  "remainingBlocker": "The ABI-2 candidate remains local/unpublished and its source pair does not match the existing release/recovery manifest. Current recovery-test Hub version 5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33 is active at 100%, but its Cloudflare metadata does not identify a source commit, tag, or candidate packet; authorization is unknown. The reported staging version-switch/switchback and GO acceptance evidence do not prove restoration from this bundle or Production rollback. Production baseline source SHA remains unknown; this is not a Production fallback or rollback-ready artifact.",
+  "nextSafeStep": "Await explicit owner approval before any Draft asset publication or manifest/recovery-pointer change. Keep guards and current manifest unchanged; reconcile the source/packet provenance for Hub version 4 and the ABI-2 candidate before making any release or recovery claim.",
+  "stagingVersionSwitchEvidence": {
+    "scope": "Read-only metadata for the existing recovery-test staging Hub; version-switch/switchback and acceptance evidence only.",
+    "worker": "ygg-connection-hub-v2-recovery-test-20261031",
+    "currentDeployment": {
+      "deploymentId": "228114d1-ab6d-4d7d-bc0e-376e2096b144",
+      "createdOn": "2026-10-31T01:47:39.105459Z",
+      "authorEmail": "pureekangraw@gmail.com",
+      "source": "api",
+      "annotations": {
+        "workers/message": "Automatic deployment on upload.",
+        "workers/triggered_by": "upload"
+      },
+      "traffic": [
+        {
+          "versionId": "5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33",
+          "percentage": 100
+        }
+      ]
+    },
+    "currentVersion": {
+      "id": "5a2d4d08-a0b2-4e89-8fb2-b5bc32c1ab33",
+      "number": 4,
+      "createdOn": "2026-10-31T01:47:39.105459Z",
+      "metadataSource": "api",
+      "authorEmail": "pureekangraw@gmail.com",
+      "scriptEtag": "d9c861982de83934ce8bc3888002c2d532c034bba9a3c9b4e9fda35e18c462c2",
+      "annotations": {
+        "workers/triggered_by": "upload"
+      },
+      "commitSha": null,
+      "tag": null,
+      "bindingNamesAddedComparedWithVersion3": [
+        "CF_ACCESS_AUD",
+        "CF_ACCESS_TEAM_DOMAIN"
+      ]
+    },
+    "previousCandidateVersion": {
+      "id": "a2f1a724-60a9-4b57-a4a9-7fcba1ed50d6",
+      "number": 3,
+      "createdOn": "2026-10-31T00:53:13.49904Z",
+      "metadataSource": "api",
+      "scriptEtag": "d9c861982de83934ce8bc3888002c2d532c034bba9a3c9b4e9fda35e18c462c2",
+      "annotations": {
+        "workers/alias": "stage-b778",
+        "workers/commit_sha": "b77869d1b85789d585aaab72f5fcdc57bd92ab19",
+        "workers/message": "Isolated staging-only recovery candidate; Hub b77869d and GO c528ce3",
+        "workers/tag": "recovery-staging-20261031-b77869d",
+        "workers/triggered_by": "version_upload"
+      },
+      "scriptEtagEqualToVersion4": true
+    },
+    "switchbackDeployments": [
+      {
+        "deploymentId": "09cdbf42-9f29-46aa-8374-a8c38c70ed17",
+        "createdOn": "2026-10-31T01:04:01.123448Z",
+        "versionId": "eef6df0e-5d6a-4b06-b46f-fa05819404c1",
+        "message": "STAGE-ONLY rollback rehearsal to prior isolated version"
+      },
+      {
+        "deploymentId": "6b08967c-2825-4802-8fb2-191e9e963227",
+        "createdOn": "2026-10-31T01:04:02.912455Z",
+        "versionId": "a2f1a724-60a9-4b57-a4a9-7fcba1ed50d6",
+        "message": "STAGE-ONLY restore after prior-version rollback rehearsal"
+      }
+    ],
+    "goStagingAcceptance": {
+      "runId": 41152647873,
+      "url": "https://github.com/pureekangraw-ops/Go-Together/actions/runs/41152647873",
+      "checkRunConclusion": "success",
+      "startedAt": "2026-10-31T00:54:12Z",
+      "completedAt": "2026-10-31T00:54:18Z",
+      "goVersion": "d0fa9e67-f24f-4273-8b7a-59de16c244a6",
+      "reportedChecks": [
+        "GO readback verified",
+        "Pending preserved",
+        "Private RPC verified"
+      ],
+      "scopeLimit": "Staging acceptance only; it does not establish acceptance of Hub version 4, restore from the ABI-2 bundle, or Production rollback."
+    },
+    "authorizationAssessment": "UNKNOWN: Cloudflare metadata identifies source=api and the author account but contains no explicit owner approval record. Version 4 has no commit SHA/tag annotation; equal script ETag to version 3 does not establish source or packet provenance."
+  }
 }

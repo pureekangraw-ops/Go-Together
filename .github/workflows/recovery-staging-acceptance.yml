@@ -33,19 +33,34 @@ jobs:
           GO_VERSION: 99b7d931-0119-4fa2-a749-7b74ea8d617f
         run: |
           set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
           audience="go-release-staging:${REQUEST_ID}"
           encoded_audience="$(jq -nr --arg value "$audience" '$value | @uri')"
-          oidc_response="$(curl --fail --silent --show-error \
+          oidc_status="$(curl --silent --show-error --output "$tmp/oidc.json" --write-out '%{http_code}' \
             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded_audience}")"
-          id_token="$(jq -er '.value' <<<"$oidc_response")"
+          if [[ "$oidc_status" != "200" ]]; then
+            echo "OIDC token request failed: HTTP ${oidc_status}"
+            jq -r 'if type == "object" then (.error // .error_description // "no safe diagnostic") else "non-JSON response" end' "$tmp/oidc.json"
+            exit 1
+          fi
+          id_token="$(jq -er '.value' "$tmp/oidc.json")"
+          claims="$(cut -d. -f2 <<<"$id_token" | tr '_-' '/+' | base64 -d | jq '{aud,sub,repository,repository_id,ref,event_name,workflow_ref,run_attempt,run_id,exp,iat}')"
+          echo "Verified OIDC claim fields: ${claims}"
           for phase in go final; do
             request="$(jq -cn --arg requestId "$REQUEST_ID" --arg goVersion "$GO_VERSION" --arg phase "$phase" '{requestId:$requestId,goVersion:$goVersion,phase:$phase}')"
-            response="$(curl --fail-with-body --silent --show-error \
+            status="$(curl --silent --show-error --output "$tmp/response.json" --write-out '%{http_code}' \
               -H "Authorization: Bearer ${id_token}" \
               -H 'Content-Type: application/json' \
               -X POST "${STAGE_GO_URL}/_release/acceptance" \
               --data "$request")"
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Staging acceptance phase=${phase} failed: HTTP ${status}"
+              jq -r 'if type == "object" then (.error // .code // "no safe diagnostic") else "non-JSON response" end' "$tmp/response.json"
+              exit 1
+            fi
+            response="$(cat "$tmp/response.json")"
             jq -e --arg requestId "$REQUEST_ID" --arg goVersion "$GO_VERSION" --arg phase "$phase" '
               .ok == true and .requestId == $requestId and .goVersion == $goVersion and
               .pending == "PRESERVED" and .goReadback == "VERIFIED" and

@@ -33,6 +33,7 @@ jobs:
           GO_VERSION: d0fa9e67-f24f-4273-8b7a-59de16c244a6
         run: |
           set -euo pipefail
+          test "$GO_VERSION" = "d0fa9e67-f24f-4273-8b7a-59de16c244a6"
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
           audience="go-release-staging:${REQUEST_ID}"

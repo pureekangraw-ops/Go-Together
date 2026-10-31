@@ -276,5 +276,29 @@
       "scopeLimit": "Staging acceptance only; it does not establish acceptance of Hub version 4, restore from the ABI-2 bundle, or Production rollback."
     },
     "authorizationAssessment": "UNKNOWN: Cloudflare metadata identifies source=api and the author account but contains no explicit owner approval record. Version 4 has no commit SHA/tag annotation; equal script ETag to version 3 does not establish source or packet provenance."
+  },
+  "cloudflareApiSemantics": {
+    "references": [
+      {
+        "title": "Cloudflare Workers API \u2014 List Versions",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/",
+        "relevance": "Defines version metadata fields including author_email, author_id, created_on, and source; source is the source of the version upload."
+      },
+      {
+        "title": "Cloudflare Workers API \u2014 Get Worker Script Version",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/",
+        "relevance": "Defines version resources, including bindings and script.etag; etag is the hashed script content."
+      },
+      {
+        "title": "Cloudflare Workers API \u2014 Deployments",
+        "url": "https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/",
+        "relevance": "Defines deployment version allocations, author_email, created_on, and annotations; workers/message is human-readable and workers/triggered_by identifies the triggering operation."
+      }
+    ],
+    "interpretation": [
+      "metadata.source=api identifies the upload source category, not a Git commit or owner approval.",
+      "Equal script ETags identify equal hashed script content, not equal bindings, manifest pins, or release-packet provenance.",
+      "The documented version/deployment metadata fields contain no explicit owner-approval attestation; authorization for Hub version 4 remains UNKNOWN."
+    ]
   }
 }

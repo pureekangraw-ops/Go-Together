@@ -3,6 +3,8 @@
 const HOST='https://factory-district.internal', PROTO='METROPOLIS_FACTORY_STATION_V2';
 const JOB=/^GOJOB-[a-f0-9]{32}$/,RECEIPT=/^receipt-[A-Za-z0-9-]{8,80}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORK_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CHECKPOINT_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const failure=(status,extra={})=>({ok:false,status,executed:false,...extra});
 export const GO_AUTH_PROBE_PURPOSE='GO_FACTORY_AUTH_PROBE_V1';
 export function goRailSecretConfigured(secret){
@@ -40,10 +42,14 @@ async function jsonRequest(env,method,path,value){
   let data;try{data=await r.json();}catch{return {ok:false,httpStatus:r.status,data:{status:'INVALID_FACTORY_RESPONSE'}};}
   return {ok:r.ok,httpStatus:r.status,data};
 }
-function validReceipt(v,id){return v?.receiptId===id&&JOB.test(v.workId||'')&&
-  v.checkpointId==='CP-'+v.workId&&v.originSystem==='go-together'&&
-  v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
-  v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');}
+function validReceipt(v,id){
+  const identity=v?.jobId
+    ?JOB.test(v.jobId)&&WORK_ID.test(v.workId||'')&&CHECKPOINT_ID.test(v.checkpointId||'')
+    :JOB.test(v.workId||'')&&v.checkpointId==='CP-'+v.workId;
+  return v?.receiptId===id&&identity&&v.originSystem==='go-together'&&
+    v.actingActor==='GO'&&v.authorizationSource==='WORK_PASS'&&
+    v.stationId==='FACTORY-STATION'&&/^[a-f0-9]{40}$/.test(v.sourceSha||'');
+}
 const safeJobReason=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_]{0,95}$/.test(value)?value:null;
 const QUEUE_EXECUTOR='FACTORY_VISUAL_QUEUE_V1';
 function queueMetadata(x,requestId){
@@ -64,7 +70,7 @@ function receiptArtifacts(x){
   if(x.result?.ownerDomain==='CODE'){
     const a=artifacts[0];
     if(artifacts.length!==1||!UUID.test(x.requestId||'')||
-      a.receiptId!==x.receiptId||a.requestId!==x.requestId||
+      a.receiptId!==x.receiptId||a.jobId!==x.jobId||a.requestId!==x.requestId||
       a.workId!==x.workId||a.checkpointId!==x.checkpointId||
       !/^[a-f0-9]{64}$/.test(a.artifactId||'')||
       !/^[A-Za-z0-9._-]{1,180}$/.test(a.filename||'')||
@@ -78,6 +84,7 @@ function receiptArtifacts(x){
     ...(a.filename===undefined?{}:{filename:a.filename,mediaType:a.mediaType}),
     ...(a.artifactId===undefined?{}:{artifactId:a.artifactId}),
     ...(a.receiptId===undefined?{}:{receiptId:a.receiptId}),
+    ...(a.jobId===undefined?{}:{jobId:a.jobId}),
     ...(a.requestId===undefined?{}:{requestId:a.requestId}),
     ...(a.workId===undefined?{}:{workId:a.workId}),
     ...(a.checkpointId===undefined?{}:{checkpointId:a.checkpointId}),
@@ -87,9 +94,9 @@ const CODE_STEPS=['INSPECT_REPOSITORY','PLAN_CHANGE','EXECUTE_CHANGE','RUN_TESTS
   'BUILD','INSPECT_ARTIFACT','CI_CHECKPOINT','DEPLOY','RUNTIME_VERIFY'];
 function validCodeExecutionProof(x,artifacts){
   const proof=x?.executionProof,artifact=artifacts?.[0];
-  return x?.result?.ownerDomain==='CODE'&&artifact&&
+  return x?.result?.ownerDomain==='CODE'&&JOB.test(x.jobId||'')&&artifact&&
     proof?.schema==='FACTORY_CODE_EXECUTION_PROOF_V1'&&
-    proof.receiptId===x.receiptId&&proof.requestId===x.requestId&&
+    proof.receiptId===x.receiptId&&proof.jobId===x.jobId&&proof.requestId===x.requestId&&
     proof.workId===x.workId&&proof.checkpointId===x.checkpointId&&
     proof.artifactId===artifact.artifactId&&proof.artifactRef===artifact.ref&&
     proof.executionState==='COMPLETE'&&proof.returnState==='RETURNED'&&
@@ -214,7 +221,7 @@ export async function factoryDirectReadback(env,{receiptId}={}){
     return {ok:true,status:'GO_RECEIPT_READ',readOnly:true,executed:false,
       verified,jobStatus:verified?'COMPLETED':x.status==='FAILED'?'FAILED':'UNKNOWN',
       reason:safeJobReason(x.reason),
-      requestId:x.requestId||null,jobId:x.workId,workId:x.workId,
+      requestId:x.requestId||null,jobId:x.jobId||x.workId,workId:x.workId,
       checkpointId:x.checkpointId,receiptId,domain:x.result?.ownerDomain||null,sourceSha:x.sourceSha,
       ...(x.result?.ownerDomain==='CODE'?{executionProof:x.executionProof}:{}),
       ...(typeof x.observedAt==='string'&&Number.isFinite(Date.parse(x.observedAt))?{observedAt:x.observedAt}:{}),
@@ -298,13 +305,19 @@ async function withMachineDelivery(env,readback) {
   return readback;
 }
 
-export async function factoryDirectJobStatus(env,{requestId}={}){
+export async function factoryDirectJobStatus(env,{requestId,workId,checkpointId}={}){
   if(!UUID.test(requestId||''))return failure('GO_REQUEST_ID_INVALID');
+  if((workId===undefined)!==(checkpointId===undefined)||
+    (workId!==undefined&&(!WORK_ID.test(workId)||!CHECKPOINT_ID.test(checkpointId))))
+    return failure('GO_WORK_IDENTITY_INVALID',{requestId});
   if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId});
   try{
-    const r=await jsonRequest(env,'POST','/station/go-job-status',{requestId});
+    const query={requestId,...(workId===undefined?{}:{workId,checkpointId})};
+    const r=await jsonRequest(env,'POST','/station/go-job-status',query);
     if(!r.ok||r.data?.requestId!==requestId||!JOB.test(r.data.jobId||''))
       return failure('GO_JOB_STATUS_UNKNOWN',{requestId,jobStatus:'UNKNOWN',readOnly:true,verified:false,httpStatus:r.httpStatus});
+    if(workId!==undefined&&(r.data.workId!==workId||r.data.checkpointId!==checkpointId))
+      return failure('GO_JOB_STATUS_IDENTITY_MISMATCH',{requestId,jobId:r.data.jobId,readOnly:true,verified:false});
     if(r.data.executor!==undefined&&r.data.executor!==QUEUE_EXECUTOR)
       return failure('GO_QUEUE_STATUS_UNVERIFIED',{requestId,jobId:r.data.jobId,jobStatus:'UNKNOWN',readOnly:true,verified:false});
     if(r.data.executor===QUEUE_EXECUTOR){
@@ -379,12 +392,13 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
     const mime=response.headers.get('content-type');
     if(codeArtifact&&(!manifest||
       response.headers.get('x-factory-request-id')!==receipt.requestId||
+      response.headers.get('x-factory-job-id')!==receipt.jobId||
       response.headers.get('x-factory-work-id')!==receipt.workId||
       response.headers.get('x-factory-checkpoint-id')!==receipt.checkpointId||
       response.headers.get('x-factory-artifact-id')!==manifest.artifactId||
       response.headers.get('x-factory-artifact-filename')!==manifest.filename||
       response.headers.get('x-factory-artifact-byte-length')!==String(bytes.byteLength)||
-      manifest.requestId!==receipt.requestId||manifest.workId!==receipt.workId||
+      manifest.jobId!==receipt.jobId||manifest.requestId!==receipt.requestId||manifest.workId!==receipt.workId||
       manifest.checkpointId!==receipt.checkpointId||manifest.receiptId!==receiptId||
       manifest.byteLength!==bytes.byteLength||manifest.mediaType!==mime))
       return failure('CODE_ARTIFACT_CORRELATION_UNVERIFIED');
@@ -425,12 +439,14 @@ export async function factoryDirectArtifact(env,{receiptId,artifactRef}={}){
       bytes:u.length,sha256:hash,base64:btoa(bin)};
   }catch{return failure('DIRECT_ARTIFACT_UNAVAILABLE');}
 }
-export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approved=false){
+export async function factoryDirectSubmit(env,{domain,spec,requestId,workId,checkpointId}={},approved=false){
   if(approved!==true)return failure('OWNER_APPROVAL_REQUIRED');
   if(!['CODE','VISUAL','LOGIC','PROOF'].includes(domain)||!object(spec))
     return failure('GO_JOB_SPEC_INVALID');
   const id=requestId===undefined?crypto.randomUUID():requestId;
   if(!UUID.test(id))return failure('GO_REQUEST_ID_INVALID');
+  if(domain==='CODE'&&(!WORK_ID.test(workId||'')||!CHECKPOINT_ID.test(checkpointId||'')))
+    return failure('GO_WORK_IDENTITY_INVALID',{requestId:id});
   if(!configured(env))return failure('DIRECT_RAIL_NOT_CONFIGURED',{requestId:id});
   try{
     const h=await factoryDirectStatus(env);
@@ -443,7 +459,8 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       return failure('FACTORY_IMAGE_SPLIT_SOURCE_NOT_INSTALLED',{requestId:id});
     const workshop=domain==='LOGIC'&&object(spec.workshop);
     if(workshop&&!h.workshopReady)return failure('FACTORY_WORKSHOP_NOT_READY',{requestId:id});
-    const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha};
+    const input={requestId:id,domain,spec,expectedSourceSha:h.sourceSha,
+      ...(domain==='CODE'?{workId,checkpointId}:{})};
     if(new TextEncoder().encode(JSON.stringify(input)).length>65536)
       return failure('GO_JOB_TOO_LARGE',{requestId:id});
     const r=await jsonRequest(env,'POST','/station/go-job',input),x=r.data||{};
@@ -457,9 +474,11 @@ export async function factoryDirectSubmit(env,{domain,spec,requestId}={},approve
       requestId:id,jobId:JOB.test(x.jobId||'')?x.jobId:null,
       receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,
       jobStatus:'UNKNOWN',verified:false,httpStatus:r.httpStatus});
+    const expectedWorkId=domain==='CODE'?workId:x.jobId;
+    const expectedCheckpointId=domain==='CODE'?checkpointId:`CP-${x.jobId}`;
     if(!r.ok||x.status!=='COMPLETED'||x.requestId!==id||
       !JOB.test(x.jobId||'')||!RECEIPT.test(x.receiptId||'')||
-      x.workId!==x.jobId||x.checkpointId!=='CP-'+x.jobId)
+      x.workId!==expectedWorkId||x.checkpointId!==expectedCheckpointId)
       return failure('GO_JOB_EFFECT_UNVERIFIED',{requestId:id,
         jobId:JOB.test(x.jobId||'')?x.jobId:null,
         receiptId:RECEIPT.test(x.receiptId||'')?x.receiptId:null,

@@ -98,7 +98,8 @@ if(approvalRoute){
     ?runFactoryCodeToGithub(env,{requestId:payload.requestId,codeSpec:payload.spec,
       repo:payload.githubDelivery.repo,baseSha:payload.githubDelivery.baseSha,
       filePath:payload.githubDelivery.filePath,approved:true})
-    :factoryDirectSubmit(env,{domain:payload.domain,spec:payload.spec,requestId:payload.requestId},true)});
+    :factoryDirectSubmit(env,{domain:payload.domain,spec:payload.spec,requestId:payload.requestId,
+      ...(payload.workId?{workId:payload.workId,checkpointId:payload.checkpointId}:{})},true)});
   return reply({approval:result.approval,result:result.dispatchResult});
  }
  if(action==='reject'&&m==='POST'){
@@ -110,7 +111,9 @@ if(approvalRoute){
   if(req.headers.get('origin')!==url.origin)return error(403,'same_origin_required');
   const args=await body(req,true);restrict(args,[]);
   return reply({approval:await reconcileFactoryApproval(d,{id:approvalId,
-   statusReader:(requestId,payload)=>payload.spec?.repositoryJob?readRepositoryJob(env,payload):factoryDirectJobStatus(env,{requestId})})});
+   statusReader:(requestId,payload)=>payload.spec?.repositoryJob?readRepositoryJob(env,payload):factoryDirectJobStatus(env,{
+    requestId,...(payload.workId?{workId:payload.workId,checkpointId:payload.checkpointId}:{})
+   })})});
  }
  return error(405,'method_not_allowed');
 }
@@ -238,6 +241,8 @@ export const tools=[
 {name:'factory_direct_propose',description:'Create a durable Factory job proposal in the GO approvals inbox. This never executes Factory. The owner must review the exact payload and click Approve & run in the GO dashboard; approval identity, time and payload hash are recorded before the existing signed Factory path runs. No auto merge or production deploy.',inputSchema:SCHEMA({
   domain:{type:'string',enum:['CODE','VISUAL','LOGIC','PROOF']},spec:GO_FACTORY_SPEC,
   requestId:{type:'string',pattern:'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'},
+  workId:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'},
+  checkpointId:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'},
   githubDelivery:GO_CODE_GITHUB_DESTINATION
 },['domain','spec','requestId']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_approval_status',description:'Read the durable state of one GO Factory approval proposal. This never approves, executes, or retries a job.',inputSchema:SCHEMA({approvalId:Q},['approvalId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
@@ -253,7 +258,7 @@ export const tools=[
 },['receiptId','artifactRef','offset','expectedSha256']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_visual_upload_status',description:'Read existing signed Factory image upload receipt without redoing an effect.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_workshop_content',description:'Owner-approved nonsecret Workshop JSON content ingestion on the existing signed Factory rail. Returns an immutable content reference and digest; no machine execution. No credentials or customer data.',inputSchema:SCHEMA({content:{},approved:{type:'boolean',const:true}},['content','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
-{name:'factory_direct_job_status',description:'Read Factory job/receipt by a prior GO-generated requestId; never reexecutes work.',inputSchema:SCHEMA({requestId:Q},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
+{name:'factory_direct_job_status',description:'Read Factory job/receipt by requestId; include workId and checkpointId for original Work correlation. Never reexecutes work.',inputSchema:SCHEMA({requestId:Q,workId:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'},checkpointId:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'}},['requestId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_readback',description:'Read one Factory-owned GO job receipt by receiptId; no Work Pass and no machine execution.',inputSchema:SCHEMA({receiptId:Q},['receiptId']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_artifact',description:'Return receipt-bound CODE JS/VISUAL PNG or Workshop package JSON bytes with verified transport/content SHA-256.',inputSchema:SCHEMA({receiptId:Q,artifactRef:Q},['receiptId','artifactRef']),annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}},
 {name:'factory_direct_code_delivery_record',description:'Owner-approved POST to Factory code-delivery receipt route. Records already verified repository/CI evidence and bounded output bytes only; never dispatches machinery, writes GitHub, merges or deploys. Returns an ISSUED receipt, not a delivered Work artifact.',inputSchema:SCHEMA({
@@ -282,12 +287,16 @@ if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJo
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
 if(name==='factory_direct_propose'){
- restrict(a,['domain','spec','requestId','githubDelivery']);
+ restrict(a,['domain','spec','requestId','workId','checkpointId','githubDelivery']);
  if(a.githubDelivery!==undefined)restrict(a.githubDelivery,['repo','baseSha','filePath']);
+ if((a.workId===undefined)!==(a.checkpointId===undefined))throw new Bad(400,'factory_work_identity_pair_required');
+ if(a.domain!=='CODE'&&(a.workId!==undefined||a.checkpointId!==undefined))throw new Bad(400,'factory_work_identity_code_only');
  const proposal=await createFactoryApproval(d,{domain:a.domain,spec:a.spec,
-  requestId:a.requestId,githubDelivery:a.githubDelivery,createdBy:env.OWNER_EMAIL});
+  requestId:a.requestId,workId:a.workId,checkpointId:a.checkpointId,
+  githubDelivery:a.githubDelivery,createdBy:env.OWNER_EMAIL});
  return {ok:true,status:proposal.status==='PENDING'?'PENDING_OWNER_APPROVAL':'APPROVAL_'+proposal.status,
   approvalId:proposal.id,requestId:proposal.requestId,payloadSha256:proposal.payloadSha256,
+  ...(proposal.payload.workId?{workId:proposal.payload.workId,checkpointId:proposal.payload.checkpointId}:{}),
   approvalUrl:ORIGIN+'/#factory-approvals',executionStarted:Boolean(proposal.approvedAt),
   approvalRequired:proposal.status==='PENDING'};
 }
@@ -300,7 +309,9 @@ if(name==='factory_visual_upload'){restrict(a,['pngBase64','sha256','requestId',
 if(name==='factory_visual_zip_chunk'){restrict(a,['receiptId','artifactRef','offset','length','expectedSha256']);return factoryVisualZipChunk(env,a);}
 if(name==='factory_visual_upload_status'){restrict(a,['requestId']);return factoryVisualUploadStatus(env,a);}
 if(name==='factory_workshop_content'){restrict(a,['content','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return factoryWorkshopContent(env,{content:a.content},true);}
-if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryDirectJobStatus(env,a);}
+if(name==='factory_direct_job_status'){restrict(a,['requestId','workId','checkpointId']);
+ if((a.workId===undefined)!==(a.checkpointId===undefined))throw new Bad(400,'factory_work_identity_pair_required');
+ return factoryDirectJobStatus(env,a);}
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
 if(name==='factory_direct_code_delivery_record'){

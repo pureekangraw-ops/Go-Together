@@ -20,6 +20,8 @@ class D1 {
 }
 const ACTOR='pureekangraw@gmail.com';
 const REQUEST='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const WORK='c4cbf25b-5e8a-4c8d-a0c3-fad94d92e07e';
+const CHECKPOINT='checkpoint-original-go-work';
 const SPEC={baseSource:'export default "before"',patch:{find:'before',replace:'after'},tests:[{path:'/',status:200,body:'after'}]};
 const sha=/^[a-f0-9]{64}$/;
 async function propose(db,overrides={}){
@@ -30,6 +32,8 @@ test('proposal persists exact immutable payload and does not execute',async()=>{
   const proposal=await propose(db);
   assert.equal(proposal.status,'PENDING');assert.equal(proposal.requestId,REQUEST);
   assert.match(proposal.payloadSha256,sha);assert.deepEqual(proposal.payload.spec,SPEC);
+  assert.match(proposal.payload.workId,/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
+  assert.equal(proposal.payload.checkpointId,`CP-${proposal.payload.workId}`);
   assert.equal(executed,0);
   const events=db.db.prepare('SELECT action,actor,payload_sha256 FROM factory_approval_events WHERE approval_id=?').all(proposal.id);
   assert.deepEqual(events.map(x=>x.action),['PROPOSED']);assert.equal(events[0].actor,ACTOR);
@@ -40,6 +44,22 @@ test('identical proposal request IDs are idempotent; changed payload conflicts',
   assert.equal(two.id,one.id);
   await assert.rejects(()=>propose(db,{spec:{...SPEC,patch:{find:'before',replace:'danger'}}}),
     e=>e instanceof FactoryApprovalError&&e.code==='REQUEST_ID_PAYLOAD_CONFLICT');
+});
+test('existing Work identity is frozen into the proposal hash and tampered payload cannot dispatch',async()=>{
+  const db=new D1(),proposal=await propose(db,{workId:WORK,checkpointId:CHECKPOINT});
+  assert.equal(proposal.payload.workId,WORK);
+  assert.equal(proposal.payload.checkpointId,CHECKPOINT);
+  await assert.rejects(()=>propose(db,{workId:'bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    checkpointId:'checkpoint-tampered'}),
+    e=>e instanceof FactoryApprovalError&&e.code==='REQUEST_ID_PAYLOAD_CONFLICT');
+  db.db.prepare('UPDATE factory_approvals SET payload_json=? WHERE id=?')
+    .run(JSON.stringify({...proposal.payload,workId:'bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee'}),proposal.id);
+  let dispatches=0;
+  await assert.rejects(()=>approveFactoryApproval(db,{id:proposal.id,
+    payloadSha256:proposal.payloadSha256,actor:ACTOR,dispatch:async()=>{dispatches++;}}),
+    e=>e instanceof FactoryApprovalError&&e.code==='APPROVAL_PAYLOAD_TAMPERED');
+  assert.equal(dispatches,0);
+  assert.equal((await getFactoryApproval(db,proposal.id)).status,'PENDING');
 });
 test('owner click binds to payload hash, stamps actor/time, then dispatches exactly once',async()=>{
   const db=new D1(),proposal=await propose(db);let dispatches=0;

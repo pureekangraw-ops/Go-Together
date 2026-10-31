@@ -4,7 +4,8 @@ import {readOwnerDashboard} from './owner-control.mjs';
 const issuer='https://token.actions.githubusercontent.com';
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const fail=()=>{throw Error('RELEASE_CI_UNAUTHORIZED');};
-const stagingClaims=(p,requestId)=>p.aud==='go-release-staging:'+requestId&&p.sub==='repo:pureekangraw-ops/Go-Together:ref:refs/heads/fix/recovery-guard-tests-20261030'&&p.repository==='pureekangraw-ops/Go-Together'&&p.repository_id==='1411826899'&&p.ref==='refs/heads/fix/recovery-guard-tests-20261030'&&p.event_name==='push'&&p.workflow_ref==='pureekangraw-ops/Go-Together/.github/workflows/recovery-staging-acceptance.yml@refs/heads/fix/recovery-guard-tests-20261030'&&p.run_attempt==='1'&&/^\d+$/.test(p.run_id||'');
+// GitHub's immutable subject format embeds both owner and repository IDs.
+const stagingClaims=(p,requestId)=>p.aud==='go-release-staging:'+requestId&&p.sub==='repo:pureekangraw-ops@312069576/Go-Together@1411826899:ref:refs/heads/fix/recovery-guard-tests-20261030'&&p.repository==='pureekangraw-ops/Go-Together'&&p.repository_id==='1411826899'&&p.ref==='refs/heads/fix/recovery-guard-tests-20261030'&&p.event_name==='push'&&p.workflow_ref==='pureekangraw-ops/Go-Together/.github/workflows/recovery-staging-acceptance.yml@refs/heads/fix/recovery-guard-tests-20261030'&&p.run_attempt==='1'&&/^\d+$/.test(p.run_id||'');
 const decode=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
 async function keys(fetcher){
  const r=await fetcher(issuer+'/.well-known/jwks',{redirect:'manual',signal:AbortSignal.timeout(5000)});if(!r.ok)fail();

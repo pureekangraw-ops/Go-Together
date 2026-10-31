@@ -201,7 +201,8 @@ test('PROOF bridge returns receipt-bound report, not application acceptance', as
       const r=await before(request),h=await r.json();
       return Response.json({...h,machinery:{...h.machinery,PROOF:{status:'READY'}}});
     }
-    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
+    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,
+      jobId:JOB,workId:JOB,checkpointId:'CP-'+JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
     if(path==='/station/readback/'+RID)return Response.json({...readback(),
       result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
       machineResult:{proofResult:report,reportRef:ref}});

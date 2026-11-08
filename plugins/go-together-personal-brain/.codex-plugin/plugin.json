@@ -1,0 +1,33 @@
+{
+  "interface": {
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "category": "Productivity",
+    "defaultPrompt": [
+      "Find the relevant past GO lesson in GO-Together and compare it with current evidence."
+    ],
+    "developerName": "Puree Kangraw",
+    "displayName": "GO-Together",
+    "longDescription": "Private memory continuity. Search, recall, correct, and organize GO knowledge using evidence-linked records. Never decides independently.",
+    "shortDescription": "GO personal memory and skills",
+    "websiteURL": "https://go-together.pureekangraw.workers.dev"
+  },
+  "name": "go-together-personal-brain",
+  "version": "1.2.1",
+  "description": "Private personal memory workspace for GO. Metro-style direct CIMD OAuth verifies the owner; Intake manages data under GO direction.",
+  "author": {
+    "name": "Puree Kangraw",
+    "email": "pureekangraw@gmail.com"
+  },
+  "keywords": [
+    "memory",
+    "knowledge",
+    "personal-brain"
+  ],
+  "homepage": "https://go-together.pureekangraw.workers.dev",
+  "repository": "https://github.com/pureekangraw-ops/Go-Together",
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}

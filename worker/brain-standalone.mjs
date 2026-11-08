@@ -14,6 +14,22 @@ const json = (value, status = 200, headers = {}) => new Response(
   { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } },
 );
 
+// Secrets Store bindings expose async get(), unlike plain Worker secrets.
+// Resolve only inside a request; never return or log the credentials.
+async function authorizedEnvironment(env) {
+  const readSecret = async binding => typeof binding === 'string'
+    ? binding : typeof binding?.get === 'function' ? await binding.get() : null;
+  const [passcode, signingKey] = await Promise.all([
+    readSecret(env.BRAIN_OWNER_PASSCODE),
+    readSecret(env.BRAIN_OAUTH_SIGNING_KEY),
+  ]);
+  if (typeof passcode !== 'string' || !passcode || typeof signingKey !== 'string' || !signingKey) {
+    return null;
+  }
+  return { ...env, BRAIN_OWNER_PASSCODE: passcode, BRAIN_OAUTH_SIGNING_KEY: signingKey };
+}
+const PUBLIC_MCP = new Set(['initialize', 'server/discover', 'tools/list', 'notifications/initialized']);
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -34,7 +50,13 @@ export default {
       if (rpcRequest?.method === 'tools/call' && !ALLOWED.has(rpcRequest.params?.name)) {
         return json({ jsonrpc: '2.0', id: rpcRequest.id ?? null, error: { code: -32601, message: 'unknown_tool' } }, 200);
       }
-      const response = await brainWorker.fetch(request, env, ctx);
+      const needsSecrets = rpcRequest && !PUBLIC_MCP.has(rpcRequest.method);
+      let runtimeEnv = env;
+      if (needsSecrets) {
+        try { runtimeEnv = await authorizedEnvironment(env); } catch { runtimeEnv = null; }
+        if (!runtimeEnv) return json({ error: 'brain_auth_not_configured' }, 503);
+      }
+      const response = await brainWorker.fetch(request, runtimeEnv, ctx);
       if (rpcRequest?.method !== 'tools/list' || !response.ok) return response;
       const payload = await response.json();
       if (Array.isArray(payload?.result?.tools)) {
@@ -44,7 +66,10 @@ export default {
     }
     // OAuth endpoints stay in the original owner-only Direct CIMD implementation.
     if (url.pathname.startsWith('/oauth/') || url.pathname.startsWith('/.well-known/oauth-')) {
-      return brainWorker.fetch(request, env, ctx);
+      let runtimeEnv;
+      try { runtimeEnv = await authorizedEnvironment(env); } catch { runtimeEnv = null; }
+      if (!runtimeEnv) return json({ error: 'brain_auth_not_configured' }, 503);
+      return brainWorker.fetch(request, runtimeEnv, ctx);
     }
     return json({ error: 'not_found' }, 404);
   },

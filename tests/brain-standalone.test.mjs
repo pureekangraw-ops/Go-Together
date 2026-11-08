@@ -6,6 +6,8 @@ const ROOT = 'https://go-together.pureekangraw.workers.dev';
 const env = {
   BRAIN_AUTH_MODE: 'DIRECT',
   OWNER_EMAIL: 'owner@example.com',
+  BRAIN_OWNER_PASSCODE: { get: async () => 'test-owner-passcode' },
+  BRAIN_OAUTH_SIGNING_KEY: { get: async () => 'test-only-signing-key' },
   DB: { prepare: () => ({ first: async () => ({ healthy: 1 }) }) },
 };
 const rpc = (method, params = {}) => worker.fetch(new Request(ROOT + '/mcp', {
@@ -45,4 +47,12 @@ test('unbound Factory tools cannot be invoked by RPC', async () => {
 test('unauthenticated GO Brain memory tool call stays private', async () => {
   const result = await rpc('tools/call', {name:'brain_list',arguments:{}});
   assert.equal(result.status, 401);
+});
+
+test('missing Secrets Store bindings fail closed without revealing credentials', async () => {
+  const noSecrets = { ...env, BRAIN_OWNER_PASSCODE: undefined, BRAIN_OAUTH_SIGNING_KEY: undefined };
+  const request = new Request(ROOT + '/oauth/authorize', { method: 'GET' });
+  const response = await worker.fetch(request, noSecrets, {});
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'brain_auth_not_configured' });
 });

@@ -15,5 +15,17 @@
       "database_name": "go-together",
       "database_id": "6f68d68b-df46-4c44-8c65-7491a1a2f17b"
     }
+  ],
+  "secrets_store_secrets": [
+    {
+      "binding": "BRAIN_OWNER_PASSCODE",
+      "store_id": "8de46cb689fc4779875025b618d3bbd4",
+      "secret_name": "BRAIN_OWNER_PASSCODE"
+    },
+    {
+      "binding": "BRAIN_OAUTH_SIGNING_KEY",
+      "store_id": "8de46cb689fc4779875025b618d3bbd4",
+      "secret_name": "BRAIN_OAUTH_SIGNING_KEY"
+    }
   ]
 }

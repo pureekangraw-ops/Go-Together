@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "go_together": {
+      "type": "streamable-http",
+      "url": "https://go-together.pureekangraw.workers.dev/mcp",
+      "headers": {},
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "cimd"
+            },
+            "resource": "https://go-together.pureekangraw.workers.dev/mcp",
+            "defaultScopes": []
+          }
+        }
+      }
+    }
+  }
+}

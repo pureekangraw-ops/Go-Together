@@ -1,0 +1,19 @@
+{
+  "name": "go-together",
+  "main": "worker/brain-standalone.mjs",
+  "compatibility_date": "2026-10-06",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "BRAIN_AUTH_MODE": "DIRECT",
+    "OWNER_EMAIL": "pureekangraw@gmail.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "go-together",
+      "database_id": "6f68d68b-df46-4c44-8c65-7491a1a2f17b"
+    }
+  ]
+}

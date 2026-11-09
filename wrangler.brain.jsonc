@@ -20,7 +20,7 @@
     {
       "binding": "BRAIN_OWNER_PASSCODE",
       "store_id": "8de46cb689fc4779875025b618d3bbd4",
-      "secret_name": "BRAIN_OWNER_PASSCODE"
+      "secret_name": "OWNER_KEY"
     },
     {
       "binding": "BRAIN_OAUTH_SIGNING_KEY",

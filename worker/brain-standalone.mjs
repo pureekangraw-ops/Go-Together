@@ -1,76 +1,69 @@
-// Standalone GO-Together Personal Brain MCP.
-// A single Worker + D1; no Factory, Hub, or Observatory bindings are needed.
-// Keep the authenticated brain methods in the existing worker implementation.
+// GO-Together: Cloudflare Access is the sole OAuth authority for this MCP.
+// Do not publish a second OAuth issuer on the Worker origin.
 import brainWorker from './index.js';
 
+const ORIGIN = 'https://go-together.pureekangraw.workers.dev';
+const ACCESS_ISSUER = 'https://pureekangraw.cloudflareaccess.com';
 const ALLOWED = new Set([
   'brain_search', 'brain_retrieve', 'brain_list', 'brain_save',
   'brain_edit', 'brain_set_status', 'brain_history', 'brain_summarize',
   'brain_reference_check', 'brain_reference_audit', 'brain_context',
 ]);
-
 const json = (value, status = 200, headers = {}) => new Response(
   JSON.stringify(value),
   { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } },
 );
 
-// Secrets Store bindings expose async get(), unlike plain Worker secrets.
-// Resolve only inside a request; never return or log the credentials.
-async function authorizedEnvironment(env) {
-  const readSecret = async binding => typeof binding === 'string'
-    ? binding : typeof binding?.get === 'function' ? await binding.get() : null;
-  const [passcode, signingKey] = await Promise.all([
-    readSecret(env.BRAIN_OWNER_PASSCODE),
-    readSecret(env.BRAIN_OAUTH_SIGNING_KEY),
-  ]);
-  if (typeof passcode !== 'string' || !passcode || typeof signingKey !== 'string' || !signingKey) {
-    return null;
-  }
-  return { ...env, BRAIN_OWNER_PASSCODE: passcode, BRAIN_OAUTH_SIGNING_KEY: signingKey };
-}
-const PUBLIC_MCP = new Set(['initialize', 'server/discover', 'tools/list', 'notifications/initialized']);
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === '/' && request.method === 'GET') {
-      return new Response(
-        'GO-Together Personal Brain MCP. Health: /api/health. OAuth-protected endpoint: /mcp.',
-        { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } },
-      );
+    const path = url.pathname;
+
+    // RFC 9728 public resource metadata must agree with Access's 401 challenge.
+    if (request.method === 'GET' &&
+        (path === '/.well-known/oauth-protected-resource/mcp' ||
+         path === '/.well-known/oauth-protected-resource')) {
+      return json({
+        resource: ORIGIN + '/mcp',
+        authorization_servers: [ACCESS_ISSUER],
+        bearer_methods_supported: ['header'],
+      });
     }
-    // The standalone deployment has no owner-protected dashboard/Access application.
-    // Do not expose legacy Factory routes or memory REST APIs without owner auth.
-    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/health') {
-      return json({ error: 'route_not_available_on_brain_only_worker' }, 404);
+
+    // The legacy passcode/CIMD endpoints conflict with Access Managed OAuth.
+    if (path.startsWith('/oauth/') ||
+        path.startsWith('/.well-known/oauth-authorization-server')) {
+      return json({ error: 'not_found' }, 404);
     }
-    if (url.pathname === '/mcp' && request.method === 'POST') {
-      let rpcRequest = null;
-      try { rpcRequest = await request.clone().json(); } catch { /* original handler will validate */ }
-      if (rpcRequest?.method === 'tools/call' && !ALLOWED.has(rpcRequest.params?.name)) {
-        return json({ jsonrpc: '2.0', id: rpcRequest.id ?? null, error: { code: -32601, message: 'unknown_tool' } }, 200);
-      }
-      const needsSecrets = rpcRequest && !PUBLIC_MCP.has(rpcRequest.method);
-      let runtimeEnv = env;
-      if (needsSecrets) {
-        try { runtimeEnv = await authorizedEnvironment(env); } catch { runtimeEnv = null; }
-        if (!runtimeEnv) return json({ error: 'brain_auth_not_configured' }, 503);
-      }
-      const response = await brainWorker.fetch(request, runtimeEnv, ctx);
-      if (rpcRequest?.method !== 'tools/list' || !response.ok) return response;
-      const payload = await response.json();
-      if (Array.isArray(payload?.result?.tools)) {
-        payload.result.tools = payload.result.tools.filter(tool => ALLOWED.has(tool.name));
-      }
-      return json(payload, response.status);
+
+    if (path === '/' && request.method === 'GET') {
+      return new Response('GO-Together Brain MCP: Cloudflare Access OAuth at /mcp.', {
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+      });
     }
-    // OAuth endpoints stay in the original owner-only Direct CIMD implementation.
-    if (url.pathname.startsWith('/oauth/') || url.pathname.startsWith('/.well-known/oauth-')) {
-      let runtimeEnv;
-      try { runtimeEnv = await authorizedEnvironment(env); } catch { runtimeEnv = null; }
-      if (!runtimeEnv) return json({ error: 'brain_auth_not_configured' }, 503);
-      return brainWorker.fetch(request, runtimeEnv, ctx);
+    if (path === '/api/health' && request.method === 'GET') {
+      return brainWorker.fetch(request, env, ctx);
     }
-    return json({ error: 'not_found' }, 404);
+    // No legacy owner APIs, Factory, Hub, or other tools in this standalone Brain.
+    if (path !== '/mcp' || request.method !== 'POST') {
+      return json({ error: 'not_found' }, 404);
+    }
+
+    let rpcRequest = null;
+    try { rpcRequest = await request.clone().json(); } catch { /* delegate parsing to MCP */ }
+    if (rpcRequest?.method === 'tools/call' && !ALLOWED.has(rpcRequest.params?.name)) {
+      return json({ jsonrpc: '2.0', id: rpcRequest.id ?? null, error: { code: -32601, message: 'unknown_tool' } });
+    }
+
+    // BRAIN_AUTH_MODE=ACCESS makes the existing handler verify Cloudflare
+    // Access's signed JWT and exact owner identity for every memory tool call.
+    // No passcode secrets are required or loaded.
+    const response = await brainWorker.fetch(request, env, ctx);
+    if (rpcRequest?.method !== 'tools/list' || !response.ok) return response;
+    const payload = await response.json();
+    if (Array.isArray(payload?.result?.tools)) {
+      payload.result.tools = payload.result.tools.filter(tool => ALLOWED.has(tool.name));
+    }
+    return json(payload, response.status);
   },
 };

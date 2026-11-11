@@ -29,6 +29,7 @@ test('proposal tool persists a pending item without touching the Factory; legacy
  const {env,paths}=setup();
  const staged=await mcp(env,'factory_direct_propose',{domain:'CODE',spec:SPEC,requestId:REQUEST});
  assert.equal(staged.data.status,'PENDING_OWNER_APPROVAL');assert.equal(staged.data.executionStarted,false);
+ assert.ok(staged.data.workId);assert.ok(staged.data.checkpointId);
  assert.match(staged.data.payloadSha256,/^[a-f0-9]{64}$/);assert.equal(paths.length,0);
  const old=await mcp(env,'factory_direct_submit',{domain:'CODE',spec:SPEC,requestId:REQUEST,approved:true});
  assert.equal(old.data.error?.message,'unknown_tool');assert.equal(paths.length,0);
@@ -45,6 +46,8 @@ test('only the owner same-origin click can dispatch, and stamp binds the exact h
  assert.equal(noOrigin.status,403);assert.equal(paths.length,0);
  const approved=await worker.fetch(new Request(`${ROOT}/api/factory-approvals/${id}/approve`,{method:'POST',headers:{'content-type':'application/json',origin:ROOT},body:JSON.stringify({payloadSha256:hash})}),env,OWNER);
  assert.equal(approved.status,200);const out=await approved.json();
+ assert.equal(out.approval.payload.workId,staged.data.workId);
+ assert.equal(out.approval.payload.checkpointId,staged.data.checkpointId);
  assert.equal(out.approval.status,'FAILED_NO_EXECUTION');assert.equal(out.approval.approvedBy,'owner@example.com');
  assert.equal(out.approval.approvedPayloadSha256,hash);assert.ok(out.approval.approvedAt);
  assert.equal(out.result.status,'FACTORY_NOT_READY');assert.deepEqual(paths,['/health','/station/go-auth-probe']);assert.ok(!paths.includes('/station/go-job'));

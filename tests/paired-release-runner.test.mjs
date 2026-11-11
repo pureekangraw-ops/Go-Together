@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assertActive,assertPreserved,bindingsFingerprint,inputs,trustedManifest,assertInfrastructurePlan} from '../scripts/paired-release-runner.mjs';
+import {assertActive,assertPreserved,bindingsFingerprint,inputs,trustedManifest,assertInfrastructurePlan,assertRetainedVersion,assertRollbackSnapshotStable,limitedVersionRollbackReceipt} from '../scripts/paired-release-runner.mjs';
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {join} from 'node:path';
@@ -12,6 +12,32 @@ test('runner refuses split traffic and production drift',()=>{assert.throws(()=>
 test('binding check preserves D1 and secrets while allowing reviewed entrypoint repairs',()=>{const b=[{name:'DB',type:'d1',id:'db'},{name:'SECRET',type:'secret_text'},{name:'GOVIEW_GO',type:'service',service:'goview-package-bridge'}];assert.doesNotThrow(()=>assertPreserved(b,[b[0],b[1],{...b[2],entrypoint:'GoviewGoBridge'}]));assert.throws(()=>assertPreserved(b,[b[0],{...b[2],entrypoint:'GoviewGoBridge'}]),/BINDINGS_CHANGED/);assert.throws(()=>assertPreserved(b,[{...b[0],id:'other'},b[1],{...b[2],entrypoint:'GoviewGoBridge'}]),/BINDINGS_CHANGED/);});
 test('receipts contain binding fingerprints without plaintext variable values',()=>{assert.ok(!JSON.stringify(bindingsFingerprint([{name:'PRIVATE',type:'plain_text',text:'sensitive-value'}])).includes('sensitive-value'));});
 test('runner rejects shell input and arbitrary accounts before network effects',()=>{assert.throws(()=>inputs({RELEASE_ID:'$(evil)'}),/INVALID_RELEASE_INPUTS/);});
+const rollbackInput={RELEASE_ACTION:'rollback',RELEASE_ID:'r1',RELEASE_REQUEST_ID:id,RELEASE_GO_SHA:'a'.repeat(40),RELEASE_HUB_SHA:'b'.repeat(40),RELEASE_GO_BASELINE:id,RELEASE_HUB_BASELINE:id,RELEASE_CONFIRM:'ROLLBACK r1'};
+test('artifact rollback remains the default and limited retained-version mode is explicit opt-in',()=>{
+ assert.equal(inputs(rollbackInput).rollbackMode,'artifact');
+ assert.throws(()=>inputs({...rollbackInput,RELEASE_ROLLBACK_MODE:'retained_versions',RELEASE_ROLLBACK_GO_VERSION:id,RELEASE_ROLLBACK_HUB_VERSION:id}),/LIMITED_ROLLBACK_ACK_REQUIRED/);
+ assert.throws(()=>inputs({...rollbackInput,RELEASE_ROLLBACK_MODE:'retained_versions',RELEASE_ROLLBACK_GO_VERSION:id,RELEASE_ROLLBACK_HUB_VERSION:id,RELEASE_LIMITED_ROLLBACK_ACK:'yes'}),/LIMITED_ROLLBACK_ACK_REQUIRED/);
+ const explicit=inputs({...rollbackInput,RELEASE_ROLLBACK_MODE:'retained_versions',RELEASE_ROLLBACK_GO_VERSION:id,RELEASE_ROLLBACK_HUB_VERSION:id,RELEASE_LIMITED_ROLLBACK_ACK:'LIMITED CODE-ONLY ROLLBACK NOT FULL ACCEPTANCE r1 '+id});
+ assert.equal(explicit.rollbackMode,'retained_versions');
+ assert.deepEqual(explicit.rollbackTargets,{go:id,hub:id});
+ assert.throws(()=>inputs({...rollbackInput,RELEASE_ROLLBACK_MODE:'retained_versions',RELEASE_ROLLBACK_GO_VERSION:'22222222-2222-4222-8222-222222222222',RELEASE_ROLLBACK_HUB_VERSION:id,RELEASE_LIMITED_ROLLBACK_ACK:'LIMITED CODE-ONLY ROLLBACK NOT FULL ACCEPTANCE r1 '+id}),/RETAINED_VERSION_TARGET_MISMATCH/);
+ assert.throws(()=>inputs({...rollbackInput,RELEASE_ROLLBACK_MODE:'retained_versions',RELEASE_ROLLBACK_GO_VERSION:id,RELEASE_ROLLBACK_HUB_VERSION:id,RELEASE_LIMITED_ROLLBACK_ACK:'LIMITED CODE-ONLY ROLLBACK NOT FULL ACCEPTANCE r1 '+id,RELEASE_ACTION:'start',RELEASE_CONFIRM:'DEPLOY r1'}),/ROLLBACK_MODE_FIELDS_UNEXPECTED/);
+});
+test('retained-version preflight refuses missing IDs and binding/configuration drift',()=>{
+ const bindings=[{name:'DB',type:'d1',id:'existing-db'},{name:'ASSETS',type:'assets'},{name:'EXECUTOR',type:'service',service:'existing-executor'}];
+ const config={d1_databases:[{binding:'DB',database_id:'existing-db'}],assets:{binding:'ASSETS'},services:[{binding:'EXECUTOR',service:'existing-executor'}]};
+ const version={id,number:7,created_on:'2026-10-01T00:00:00Z',resources:{bindings,script:{etag:'content-etag'}}};
+ assert.equal(assertRetainedVersion(version,id,bindings,config).versionId,id);
+ assert.throws(()=>assertRetainedVersion({...version,id:'22222222-2222-4222-8222-222222222222'},id,bindings,config),/ROLLBACK_TARGET_VERSION_UNAVAILABLE/);
+ assert.throws(()=>assertRetainedVersion({...version,resources:{bindings:bindings.map(b=>b.name==='DB'?{...b,id:'drift'}:b)}},id,bindings,config),/DRIFT/);
+ assert.throws(()=>assertRollbackSnapshotStable({id,bindings,routesHash:'r',domainsHash:'d',annotations:{}},{id:'22222222-2222-4222-8222-222222222222',bindings,routesHash:'r',domainsHash:'d',annotations:{}}),/ROLLBACK_PRE_ACTIVATION_DRIFT/);
+});
+test('limited version activation receipt never claims functional acceptance',()=>{
+ const receipt=limitedVersionRollbackReceipt({targets:{go:{versionId:id},hub:{versionId:id}},activation:{go:{verification:'CLOUDFLARE_VERSION_AND_DEPLOYMENT_READBACK'}},candidateDigest:'c'.repeat(64),sourcePins:{go:'a'.repeat(40),hub:'b'.repeat(40)}});
+ assert.equal(receipt.status,'VERSION_ROLLBACK_ACTIVATED_LIMITED');
+ assert.deepEqual(receipt.functionalAcceptance,{status:'NOT_VERIFIED',privateRpc:'NOT_VERIFIED',pending:'NOT_VERIFIED'});
+ assert.doesNotMatch(JSON.stringify(receipt),/\"(functionalAcceptance|privateRpc|pending)\":\"VERIFIED\"/);
+});
 
 test('legacy missing entrypoints are repaired by current infrastructure instead of blocking on old version configuration',()=>{
  const old=[{name:'GOVIEW_GO',type:'service',service:'goview-package-bridge'}];

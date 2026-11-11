@@ -19,6 +19,17 @@ export function inputs(e=process.env){
  if(e.GITHUB_RUN_ATTEMPT!==undefined&&e.GITHUB_RUN_ATTEMPT!=='1')die('RELEASE_RERUN_REFUSED');
  const v={action:e.RELEASE_ACTION,releaseId:e.RELEASE_ID,requestId:e.RELEASE_REQUEST_ID,goSha:e.RELEASE_GO_SHA,hubSha:e.RELEASE_HUB_SHA,goVersion:e.RELEASE_GO_BASELINE,hubVersion:e.RELEASE_HUB_BASELINE};
  if(!['prepare','start','rollback'].includes(v.action)||!/^[-a-z0-9]{1,60}$/.test(v.releaseId||'')||!uuid.test(v.requestId||'')||!sha.test(v.goSha||'')||!sha.test(v.hubSha||'')||!uuid.test(v.goVersion||'')||!uuid.test(v.hubVersion||'')||e.RELEASE_CONFIRM!==(v.action==='prepare'?'PREPARE ':v.action==='start'?'DEPLOY ':'ROLLBACK ')+v.releaseId)die('INVALID_RELEASE_INPUTS');
+ const rollbackMode=e.RELEASE_ROLLBACK_MODE||'artifact';
+ if(!['artifact','retained_versions'].includes(rollbackMode))die('ROLLBACK_MODE_INVALID');
+ const targetGo=e.RELEASE_ROLLBACK_GO_VERSION,targetHub=e.RELEASE_ROLLBACK_HUB_VERSION,ack=e.RELEASE_LIMITED_ROLLBACK_ACK;
+ if(v.action==='rollback'&&rollbackMode==='retained_versions'){
+  if(!uuid.test(targetGo||'')||!uuid.test(targetHub||'')||targetGo!==v.goVersion||targetHub!==v.hubVersion)die('RETAINED_VERSION_TARGET_MISMATCH');
+  if(ack!=='LIMITED CODE-ONLY ROLLBACK NOT FULL ACCEPTANCE '+v.releaseId+' '+v.requestId)die('LIMITED_ROLLBACK_ACK_REQUIRED');
+  v.rollbackMode=rollbackMode;v.rollbackTargets={go:targetGo,hub:targetHub};
+ }else{
+  if(rollbackMode!=='artifact'||targetGo||targetHub||ack)die('ROLLBACK_MODE_FIELDS_UNEXPECTED');
+  v.rollbackMode='artifact';
+ }
  return v;
 }
 export function bindingsFingerprint(bindings,{correctEntrypoints=false}={}){
@@ -39,6 +50,29 @@ export function assertActive(d,expected){
  if(!Array.isArray(versions)||versions.length!==1||versions[0].percentage!==100||!uuid.test(versions[0].version_id||''))die('TRAFFIC_ALLOCATION_UNVERIFIED');
  if(expected&&versions[0].version_id!==expected)die('PRODUCTION_DRIFT');
  return versions[0].version_id;
+}
+export function assertRetainedVersion(version,expectedId,activeBindings,config){
+ const versionId=version?.id||version?.version_id;
+ if(versionId!==expectedId)die('ROLLBACK_TARGET_VERSION_UNAVAILABLE');
+ const targetBindings=version?.resources?.bindings;
+ if(!Array.isArray(targetBindings)||!Array.isArray(activeBindings))die('ROLLBACK_TARGET_CONFIGURATION_UNREADABLE');
+ assertInfrastructurePlan(targetBindings,config);
+ if(JSON.stringify(bindingsFingerprint(targetBindings))!==JSON.stringify(bindingsFingerprint(activeBindings)))die('ROLLBACK_TARGET_CONFIGURATION_DRIFT');
+ const targetAssets=targetBindings.filter(b=>b.type==='assets').map(b=>b.name).sort();
+ const activeAssets=activeBindings.filter(b=>b.type==='assets').map(b=>b.name).sort();
+ if(JSON.stringify(targetAssets)!==JSON.stringify(activeAssets))die('ROLLBACK_TARGET_CONFIGURATION_DRIFT');
+ return {versionId,versionNumber:Number.isSafeInteger(version.number)?version.number:null,createdOn:typeof version.created_on==='string'?version.created_on:null,scriptEtag:typeof version.resources?.script?.etag==='string'?version.resources.script.etag:null,bindingsFingerprint:hash(bindingsFingerprint(targetBindings))};
+}
+export function assertRollbackSnapshotStable(before,after){
+ const shape=s=>({id:s?.id,bindings:bindingsFingerprint(s?.bindings),scriptEtag:s?.scriptEtag,routesHash:s?.routesHash,domainsHash:s?.domainsHash,tag:s?.annotations?.['workers/tag'],message:s?.annotations?.['workers/message']});
+ if(JSON.stringify(shape(before))!==JSON.stringify(shape(after)))die('ROLLBACK_PRE_ACTIVATION_DRIFT');
+}
+export function limitedVersionRollbackReceipt({targets,activation,candidateDigest,sourcePins}){
+ return {
+  status:'VERSION_ROLLBACK_ACTIVATED_LIMITED',
+  rollback:{mode:'retained_worker_versions',targets,activation,candidate:{controllerAbi:2,sha256:candidateDigest,sources:sourcePins}},
+  functionalAcceptance:{status:'NOT_VERIFIED',privateRpc:'NOT_VERIFIED',pending:'NOT_VERIFIED'}
+ };
 }
 async function api(path,{method='GET',body,gitlab=false}={}){
  const token=gitlab?process.env.GITLAB_SOURCE_TOKEN:process.env.CLOUDFLARE_API_TOKEN;
@@ -220,10 +254,67 @@ async function restore(v,m,automatic){
  const liveGo=restored.go?.version||states.go.id;let acceptance=null;if(changes.length){if(recovery.manifest.controllerAbi===0)acceptance={...await publicAcceptance(v,join(dirnameOfConfig(recovery.go.config),'static/index.html')),privateRpc:'NOT_AVAILABLE_IN_LEGACY_BOOTSTRAP',pending:'NOT_VERIFIED'};else acceptance=await privateAcceptance(v,liveGo,changes.includes('hub')?'final':'go');}
  writeReceipt({...receipt,status:automatic?'FAILED_RECOVERED':'RECOVERED',recovery:{assetId:m.recovery.assetId,sha256:m.recovery.sha256,sources:{go:m.recovery.goSha,hub:m.recovery.hubSha},versions:restored},acceptance});
 }
+function candidateForVersionRollback(v){
+ const bytes=readFileSync(process.env.RELEASE_BUNDLE_PATH||'go-hub-bundle.json');
+ const digest=createHash('sha256').update(bytes).digest('hex'),candidate=validateBundle(bytes,digest);
+ if(candidate.controllerAbi!==2)die('CANDIDATE_CONTROL_ABI_REQUIRED');
+ if(candidate.releaseId!==v.releaseId||candidate.sources.go!==v.goSha||candidate.sources.hub!==v.hubSha)die('CANDIDATE_SOURCE_MISMATCH');
+ return {digest,manifest:candidate};
+}
+async function retainedVersion(worker,versionId,activeBindings,config){
+ const deployable=await api(path(worker)+'/versions?deployable=true');
+ if(!Array.isArray(deployable.result)||!deployable.result.some(x=>(x.id||x.version_id)===versionId))die('ROLLBACK_TARGET_NOT_RETAINED');
+ const response=await api(path(worker)+'/versions/'+versionId),version=response.result;
+ return assertRetainedVersion(version,versionId,activeBindings,config);
+}
+function assertRollbackOwner(current,v,kind,original){
+ if(current.annotations['workers/tag']!==original||current.annotations['workers/message']!==v[kind+'Sha'])die('ROLLBACK_PRODUCTION_DRIFT');
+}
+function assertRollbackPostActivation(before,after,targetId,target){
+ if(after.id!==targetId)die('ROLLBACK_VERSION_READBACK_MISMATCH');
+ if(JSON.stringify(bindingsFingerprint(before.bindings))!==JSON.stringify(bindingsFingerprint(after.bindings))||before.routesHash!==after.routesHash||before.domainsHash!==after.domainsHash)die('ROLLBACK_POST_ACTIVATION_DRIFT');
+ if(target.scriptEtag&&after.scriptEtag!==target.scriptEtag)die('ROLLBACK_VERSION_READBACK_MISMATCH');
+}
+async function rollbackRetainedVersions(v,m){
+ const original=process.env.RELEASE_ORIGINAL_REQUEST_ID;
+ if(!uuid.test(original||''))die('ROLLBACK_ORIGINAL_REQUEST_REQUIRED');
+ const candidate=candidateForVersionRollback(v),cfg=configs();
+ const before={go:await snapshot(go),hub:await snapshot(hub)};
+ for(const kind of ['go','hub']){
+  assertRollbackOwner(before[kind],v,kind,original);
+  assertInfrastructurePlan(before[kind].bindings,cfg[kind]);
+ }
+ const targets={
+  go:await retainedVersion(go,v.rollbackTargets.go,before.go.bindings,cfg.go),
+  hub:await retainedVersion(hub,v.rollbackTargets.hub,before.hub.bindings,cfg.hub)
+ };
+ const accessHash=await accessSnapshot();
+ const activation={};
+ writeReceipt({...v,status:'VERSION_ROLLBACK_PREFLIGHT_PASSED',originalRequestId:original,candidate:{controllerAbi:2,sha256:candidate.digest,sources:candidate.manifest.sources},targets,activation,functionalAcceptance:{status:'NOT_VERIFIED',privateRpc:'NOT_VERIFIED',pending:'NOT_VERIFIED'}});
+ // Reverse deployment order. Each activation is a traffic-only version deployment;
+ // the runner never uploads a version or changes Worker configuration here.
+ for(const kind of ['hub','go']){
+  const worker=kind==='go'?go:hub,targetId=v.rollbackTargets[kind];
+  const latest=await snapshot(worker,before[kind].id);
+  assertRollbackSnapshotStable(before[kind],latest);
+  assertRollbackOwner(latest,v,kind,original);
+  if(await accessSnapshot()!==accessHash)die('ROLLBACK_ACCESS_DRIFT');
+  const currentTarget=await retainedVersion(worker,targetId,latest.bindings,cfg[kind]);
+  await api(path(worker)+'/deployments',{method:'POST',body:{strategy:'percentage',versions:[{version_id:targetId,percentage:100}]}});
+  const after=await snapshot(worker,targetId);
+  assertRollbackPostActivation(before[kind],after,targetId,currentTarget);
+  if(await accessSnapshot()!==accessHash)die('ROLLBACK_ACCESS_DRIFT');
+  activation[kind]={fromVersion:before[kind].id,versionId:after.id,versionNumber:currentTarget.versionNumber,traffic:'100%',verification:'CLOUDFLARE_VERSION_AND_DEPLOYMENT_READBACK',configurationFingerprint:currentTarget.bindingsFingerprint};
+  writeReceipt({...v,status:'VERSION_ROLLBACK_PARTIAL',originalRequestId:original,candidate:{controllerAbi:2,sha256:candidate.digest,sources:candidate.manifest.sources},targets,activation,functionalAcceptance:{status:'NOT_VERIFIED',privateRpc:'NOT_VERIFIED',pending:'NOT_VERIFIED'}});
+ }
+ const receipt={...v,originalRequestId:original,...limitedVersionRollbackReceipt({targets,activation,candidateDigest:candidate.digest,sourcePins:candidate.manifest.sources})};
+ writeReceipt(receipt);return receipt;
+}
 async function main(stage){
  const v=inputs();if(v.action==='rollback'&&!uuid.test(process.env.RELEASE_ORIGINAL_REQUEST_ID||''))die('ROLLBACK_ORIGINAL_REQUEST_REQUIRED');
  if(stage==='validate')return;
- const m=manifest(v,v.action!=='prepare');
+ const retainedVersionRollback=v.action==='rollback'&&v.rollbackMode==='retained_versions';
+ const m=manifest(v,v.action!=='prepare'&&!retainedVersionRollback);
  if(stage==='manifest')return;
  if(stage==='fetch-infrastructure'){
   const ref=m.hubInfrastructureSha||m.hubSha;if(!sha.test(ref))die('INFRASTRUCTURE_SOURCE_INVALID');
@@ -260,8 +351,8 @@ async function main(stage){
   const acceptance=await privateAcceptance(v,deployedGo.version,'final',artifact);writeReceipt({...readReceipt(),status:'DEPLOYED',acceptance,artifact:{...artifact,runtimeVerified:true}});return;
  }
  if(stage==='recover'){await restore(v,m,true);return;}
- if(stage==='rollback'){await restore(v,m,false);return;}
+ if(stage==='rollback'){if(v.rollbackMode==='retained_versions')await rollbackRetainedVersions(v,m);else await restore(v,m,false);return;}
  die('UNKNOWN_RUNNER_STAGE');
 }
 const dirnameOfConfig=file=>resolve(file,'..');
-if(process.argv[1]===fileURLToPath(import.meta.url))main(process.argv[2]).catch(e=>{const code=/^[A-Z_0-9]+$/.test(e.message)?e.message:'RELEASE_RUNNER_FAILED';console.error(code);if(code!=='RELEASE_RERUN_REFUSED')try{writeReceipt({...readReceipt(),status:'UNKNOWN',code});}catch{}process.exitCode=1;});
+if(process.argv[1]===fileURLToPath(import.meta.url))main(process.argv[2]).catch(e=>{const code=/^[A-Z_0-9]+$/.test(e.message)?e.message:'RELEASE_RUNNER_FAILED';console.error(code);if(code!=='RELEASE_RERUN_REFUSED')try{const previous=readReceipt();writeReceipt({...previous,...(previous.status==='VERSION_ROLLBACK_PARTIAL'?{}:{status:'UNKNOWN'}),code});}catch{}process.exitCode=1;});

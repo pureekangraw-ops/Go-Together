@@ -70,3 +70,16 @@ test('drain processes only bounded current pending jobs and skips failed/histori
  await drainAssociations(environment(s.DB),{requester:async()=>{calls++;return response(output());},limit:1});
  assert.equal(calls,1);assert.equal((await associationStatus(s.DB,c)).state,'ready');assert.equal((await associationStatus(s.DB,a)).state,'failed');
 });
+
+test('expired running lease recovers, but active running job is not restarted',async t=>{
+ const s=testDatabase();t.after(s.close);
+ const expired=seed(s.sql),inFlight=seed(s.sql);
+ s.sql.prepare("UPDATE brain_association_runs SET state='running',lease_token='old-lease',lease_until='2000-01-01T00:00:00.000Z' WHERE memory_id=?").run(expired);
+ s.sql.prepare("UPDATE brain_association_runs SET state='running',lease_token='live-lease',lease_until='2099-01-01T00:00:00.000Z' WHERE memory_id=?").run(inFlight);
+ let calls=0;
+ const result=await drainAssociations(environment(s.DB),{requester:async()=>{calls++;return response(output());},limit:5});
+ assert.equal(result.processed,1);
+ assert.equal(calls,1);
+ assert.equal((await associationStatus(s.DB,expired)).state,'ready');
+ assert.equal((await associationStatus(s.DB,inFlight)).state,'running');
+});

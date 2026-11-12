@@ -55,7 +55,7 @@ if(create)Object.assign(out,{kind:out.kind||'operational_memory',status:out.stat
 return out;}
 const memory=x=>{if(!x)return null;const {save_request_id,save_request_hash,save_response,...publicRow}=x;return {...publicRow,tags:JSON.parse(x.tags||'[]'),metadata:JSON.parse(x.metadata||'{}')};};
 async function one(db,key){return memory(await db.prepare('SELECT * FROM memories WHERE id=?').bind(key).first());}
-async function card(db,key){const item=await one(db,key);if(!item)throw new Bad(404,'memory_not_found');return buildMemoryCard(item);}
+async function card(db,key){const item=await one(db,key);if(!item)throw new Bad(404,'memory_not_found');return {...buildMemoryCard(item),association:await associationStatus(db,key)};}
 async function save(db,args){
  restrict(args,[...EDIT,'request_id']);const {request_id,...fields}=args;
  if(request_id!==undefined&&(typeof request_id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(request_id)))throw new Bad(400,'invalid_request_id');

@@ -13,6 +13,7 @@ export function queryTerms(query,match='all'){
  const terms=[...new Set((match==='phrase'?[query.trim()]:query.trim().split(/\s+/u)).map(x=>x.toLowerCase()))];
  if(terms.length>10)throw new RangeError('too_many_query_terms');return terms;
 }
+export const needsUnicodeFold=terms=>terms.some(t=>/[\u0080-\uFFFF]/u.test(t)&&t.toUpperCase()!==t);
 function evidence(memory,terms){return Object.keys(FIELDS).flatMap(field=>{
  const value=field==='tags'?memory.tags.join(' '):String(memory[field]||'');const lower=value.toLowerCase();const found=terms.filter(t=>lower.includes(t));
  if(!found.length)return [];const at=lower.indexOf(found[0]),start=Math.max(0,at-70);
@@ -28,7 +29,25 @@ export async function keywordSearch(db,{query,limit,kind,status,match='all',curs
  if(kind!==undefined){clauses.push('kind=?');values.push(kind);}
  const names=terms.map((_,i)=>'t'+i),where=names.map(n=>n+'>0').join(match==='any'?' OR ':' AND ');
  const sql=`WITH ranked AS (SELECT ${MEMORY_COLUMNS},${scores.join(',')} FROM memories WHERE ${clauses.join(' AND ')}) SELECT ${MEMORY_COLUMNS},(${names.join('+')}) AS score FROM ranked WHERE (${where}) ORDER BY score DESC,updated_at DESC,id DESC LIMIT ? OFFSET ?`;
- const rows=(await db.prepare(sql).bind(...values,max+1,offset).all()).results||[];
+ let rows;
+ if(needsUnicodeFold(terms)){
+  // SQLite lower() folds ASCII only. Scan selected sources in bounded batches,
+  // fold in JS, and retain only the requested ranked window. Never rewrite sources.
+  let after=null;const best=[];
+  const compare=(a,b)=>b.score-a.score||(a.updated_at===b.updated_at?(a.id===b.id?0:a.id>b.id?-1:1):a.updated_at>b.updated_at?-1:1);
+  for(;;){
+   const filters=[...clauses];const args=[...statuses,...(kind!==undefined?[kind]:[])];
+   if(after!==null){filters.push('id>?');args.push(after);}
+   const batch=(await db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories WHERE ${filters.join(' AND ')} ORDER BY id LIMIT 200`).bind(...args).all()).results||[];
+   for(const row of batch){
+    const scores=terms.map(term=>Math.max(...Object.entries(FIELDS).map(([field,weight])=>String(row[field]||'').toLowerCase().includes(term)?weight:0)));
+    if(match==='any'?scores.some(Boolean):scores.every(Boolean))best.push({...row,score:scores.reduce((a,b)=>a+b,0)});
+   }
+   best.sort(compare);best.length=Math.min(best.length,offset+max+1);
+   if(batch.length<200)break;after=batch.at(-1).id;
+  }
+  rows=best.slice(offset);
+ }else rows=(await db.prepare(sql).bind(...values,max+1,offset).all()).results||[];
  const more=rows.length>max,items=rows.slice(0,max).map(row=>{const memory=publicMemory(row);return {score:Math.round(1000*row.score/(6*terms.length))/1000,memory,matches:evidence(memory,terms)};});
  return {query,method:'source-keyword-v3',match,items,count:items.length,next_cursor:more?encodeCursor({identity,offset:offset+max}):null,
  coverage:{statuses,kind:kind??null,pre_match_limit:null,source_fields:Object.keys(FIELDS),page_size:max,has_more:more,consistency:'Pages may move if memories are edited between requests; restart for a fresh view.'},

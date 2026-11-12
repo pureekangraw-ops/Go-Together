@@ -26,3 +26,22 @@ test('literal wildcard characters and any/all word matching are independent of a
  await assert.rejects(keywordSearch(s.DB,{query:' ',limit:2}),/invalid_query/);
  await assert.rejects(keywordSearch(s.DB,{query:'Beaver',status:'invented'}),/invalid_status/);
 });
+test('Unicode case matching ranks and paginates without changing source text',async t=>{
+ const s=testDatabase();t.after(s.close);
+ const a=seed(s.sql,{title:'ÉCOLE',content:'none',tags:[]});
+ const b=seed(s.sql,{title:'other',content:'école',tags:[]});
+ for(const query of ['école','ÉCOLE']){
+  const first=await keywordSearch(s.DB,{query,limit:1});
+  assert.equal(first.items[0]?.memory.id,a);assert.equal(first.items[0].matches[0].excerpt,'ÉCOLE');
+  const next=await keywordSearch(s.DB,{query,limit:1,cursor:first.next_cursor});
+  assert.equal(next.items[0]?.memory.id,b);assert.equal(next.next_cursor,null);
+ }
+});
+
+test('Unicode source scan has no pre-match cutoff and respects status',async t=>{
+ const s=testDatabase();t.after(s.close);
+ for(let i=0;i<205;i++)seed(s.sql,{id:'a'+String(i).padStart(5,'0'),title:'unrelated',content:'none',tags:[]});
+ const wanted=seed(s.sql,{id:'zz',title:'ÉCOLE',content:'none',tags:[]});
+ seed(s.sql,{title:'ÉCOLE',status:'deleted'});
+ assert.deepEqual((await keywordSearch(s.DB,{query:'école'})).items.map(x=>x.memory.id),[wanted]);
+});

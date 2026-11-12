@@ -128,8 +128,10 @@ export async function processAssociation(env,{id,expected_revision,retry_failed=
  const guard="EXISTS(SELECT 1 FROM memories m JOIN brain_association_runs r ON r.memory_id=m.id AND r.revision=m.revision "+
   "WHERE m.id=? AND m.revision=? AND m.status IN "+LIVE+" AND r.id=? AND r.state='running' AND r.lease_token=?)";
  const guardArgs=[id,expected_revision,run.id,token];
- statements.push(db.prepare('DELETE FROM brain_memory_terms WHERE run_id=?').bind(run.id));
- statements.push(db.prepare('DELETE FROM brain_memory_links WHERE run_id=?').bind(run.id));
+ // A timed-out worker must not delete the results of a newer lease holder.
+ // Lease and source-revision guards apply to deletes as well as inserts.
+ statements.push(db.prepare('DELETE FROM brain_memory_terms WHERE run_id=? AND '+guard).bind(run.id,...guardArgs));
+ statements.push(db.prepare('DELETE FROM brain_memory_links WHERE run_id=? AND '+guard).bind(run.id,...guardArgs));
  for(const t of result.terms){
   statements.push(db.prepare(
    'INSERT INTO brain_memory_terms(memory_id,revision,run_id,term,label,kind,entity_key,provenance,evidence_json) '+

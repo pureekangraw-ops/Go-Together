@@ -49,3 +49,10 @@ Resume from docs/superpowers/plans/2026-11-12-brain-search-associations.md and t
 - Executed a **local SQLite 3.46.1** temporary in-memory smoke script using the `0003_brain_associations.sql` DDL and trigger statements against a minimal compatible `memories` table (not the full repository test harness).
 - All five local checks passed: DDL/triggers compile; initial insert creates one pending run and GO-supplied keyword; edit supersedes the old run and indexes the new revision; soft delete supersedes and skips a new API run; restore creates a fresh pending run.
 - This is targeted SQL evidence, **not an execution of `node --test tests/*.test.mjs`**, not a D1 hosted migration, and not proof of the complete schema/migration history. The user should not be asked to run manual commands.
+
+## Continuation: expired association lease recovery
+- Fixed `worker/brain-associations.mjs` bounded drain to pick up **pending** jobs and **running jobs with expired non-null leases**. Previously the drain selected pending only, so a Worker interruption could leave an in-flight job stuck indefinitely even though its claim logic permitted recovery.
+- Added real Node/SQLite regression test `expired running lease recovers, but active running job is not restarted` to `tests/brain-associations.test.mjs` (committed, not yet run in the complete Node suite).
+- Executed a focused **SQLite in-memory query check** selecting expired + pending jobs while excluding a valid running lease, failed jobs and deleted memories: passed.
+- Loaded the exact branch module in an isolated JS function check: syntax valid; drain predicate, timestamp binding and requested batch limit present; passed. **These two focused checks are not a substitute for the full test suite.**
+- Full GitHub Actions/Node suite still has no new verified execution for this branch; container GitHub DNS resolution failed. The old 232/242 result is historical only. Do not merge or deploy until full-suite and migration/Worker validation are independently confirmed.

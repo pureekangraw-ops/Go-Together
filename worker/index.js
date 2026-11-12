@@ -1,4 +1,6 @@
 import {keywordSearch} from './brain-search.mjs';
+import {keywordFinder,associationStatus} from './brain-keywords.mjs';
+import {processAssociation} from './brain-associations.mjs';
 import {normalizeMetadata,buildMemoryCard,METADATA_SCHEMA} from './brain-card.mjs';
 import {REPOSITORY_JOB_SCHEMA,dispatchRepositoryJob,readRepositoryJob} from './factory-repository-job.mjs';
 import {goCiAcceptance} from './release-ci.mjs';
@@ -216,6 +218,9 @@ export const tools=[
  {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N,status:Q,kind:Q,match:{type:'string',enum:['all','any','phrase']},cursor:Q},['query'])},
+{name:'brain_keyword_finder',description:'Read current keyword associations and evidence-backed suggestions independently of Search and AI.',inputSchema:SCHEMA({query:Q,limit:N,status:Q,kind:Q,cursor:Q},['query']),annotations:{readOnlyHint:true}},
+{name:'brain_association_status',description:'Read association processing state for one exact current memory revision.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
+{name:'brain_association_process',description:'Process one selected current memory revision into suggested associations; source remains unchanged.',inputSchema:SCHEMA({id:Q,expected_revision:{type:'integer',minimum:1},retry_failed:{type:'boolean'}},['id','expected_revision'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_list',description:'Organize and list memories by filters and sort order.',inputSchema:SCHEMA({kind:Q,status:Q,q:Q,sort:Q,limit:N})},
 {name:'brain_card',description:'Read a source-backed Memory Card by ID, including inactive records. No inference or source verification.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
@@ -259,7 +264,7 @@ async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
 if(name.startsWith('github_code_job_'))throw new Bad(403,'OWNER_APPROVAL_ROUTE_REQUIRED');
-if(!local&&hubGroup(name)&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:card|search|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name)))return hubTool(env,name,a);
+if(!local&&hubGroup(name)&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:card|search|keyword_finder|association_status|association_process|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name)))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
@@ -291,6 +296,9 @@ if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDir
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
 if(name==='factory_code_deliver_github'){restrict(a,['receiptId','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return deliverFactoryCodeToGithub(env,a);}
 if(name==='brain_search'){restrict(a,['query','limit','status','kind','match','cursor']);const {query,limit,...options}=a;return search(d,query,limit,options);}
+if(name==='brain_keyword_finder'){restrict(a,['query','limit','status','kind','cursor']);try{return await keywordFinder(d,a);}catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}}
+if(name==='brain_association_status'){restrict(a,['id']);return associationStatus(d,a.id);}
+if(name==='brain_association_process'){restrict(a,['id','expected_revision','retry_failed']);try{return await processAssociation(env,a);}catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}}
 if(name==='brain_card'){restrict(a,['id']);return card(d,a.id);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};

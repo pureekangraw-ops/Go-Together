@@ -1,3 +1,5 @@
+import {keywordSearch} from './brain-search.mjs';
+import {normalizeMetadata,buildMemoryCard,METADATA_SCHEMA} from './brain-card.mjs';
 import {REPOSITORY_JOB_SCHEMA,dispatchRepositoryJob,readRepositoryJob} from './factory-repository-job.mjs';
 import {goCiAcceptance} from './release-ci.mjs';
 import {hubGroup,hubTool,hubConnections} from './hub-client.mjs';
@@ -16,7 +18,7 @@ const SOURCE_SHA='__SOURCE_SHA__';
 const ORIGIN='https://go-together.pureekangraw.workers.dev';
 const RESOURCE=ORIGIN+'/mcp';
 const HEAD={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
-const EDIT=['kind','title','content','status','work_id','evidence_url','outcome','confidence','tags'];
+const EDIT=['kind','title','content','status','work_id','evidence_url','outcome','confidence','tags','metadata'];
 const STAT=['active','needs_review','stale','archived','deleted'];
 const CONF=['confirmed','probable','unknown'];
 const stamp=()=>new Date().toISOString();
@@ -29,6 +31,7 @@ class Bad extends Error{constructor(status,message){super(message);this.status=s
 function restrict(v,keys){if(!v||typeof v!=='object'||Array.isArray(v))throw new Bad(400,'json_object_required');for(const k of Object.keys(v))if(!keys.includes(k))throw new Bad(400,'unknown_field:'+k);}
 function clean(v,create=false){restrict(v,EDIT);if(create&&(!('title'in v)||!('content'in v)))throw new Bad(400,'title_and_content_required');const out={};
 for(const [key,x] of Object.entries(v)){
+ if(key==='metadata'){try{out.metadata=JSON.stringify(normalizeMetadata(x));}catch{throw new Bad(400,'invalid_metadata');}continue;}
  if(key==='tags'){if(!Array.isArray(x)||x.length>30||x.some(t=>typeof t!=='string'||t.length>80))throw new Bad(400,'invalid_tags');out.tags=JSON.stringify([...new Set(x.map(t=>t.trim()).filter(Boolean))]);continue;}
  if(typeof x!=='string')throw new Bad(400,'field_must_be_string:'+key);
  const value=x.trim();if(value.length>(key==='content'?50000:key==='evidence_url'?2000:1000)||((key==='title'||key==='content'||key==='kind')&&!value))throw new Bad(400,'invalid_length:'+key);
@@ -39,13 +42,25 @@ for(const [key,x] of Object.entries(v)){
  if(key==='evidence_url'&&value&&!/^(https?:\/\/|notion:\/\/|user:\/\/)/i.test(value))throw new Bad(400,'invalid_evidence_url');
  out[key]=value;
 }
-if(create)Object.assign(out,{kind:out.kind||'operational_memory',status:out.status||'active',confidence:out.confidence||'unknown',tags:out.tags||'[]',work_id:out.work_id||'',evidence_url:out.evidence_url||'',outcome:out.outcome||''});
+if(create)Object.assign(out,{kind:out.kind||'operational_memory',status:out.status||'active',confidence:out.confidence||'unknown',tags:out.tags||'[]',metadata:out.metadata||JSON.stringify(normalizeMetadata({})),work_id:out.work_id||'',evidence_url:out.evidence_url||'',outcome:out.outcome||''});
 return out;}
-const memory=x=>x?{...x,tags:JSON.parse(x.tags||'[]')}:null;
+const memory=x=>{if(!x)return null;const {save_request_id,save_request_hash,save_response,...publicRow}=x;return {...publicRow,tags:JSON.parse(x.tags||'[]'),metadata:JSON.parse(x.metadata||'{}')};};
 async function one(db,key){return memory(await db.prepare('SELECT * FROM memories WHERE id=?').bind(key).first());}
-async function save(db,args){const x=clean(args,true),key=id(),t=stamp();
-await db.prepare('INSERT INTO memories (id,kind,title,content,status,work_id,evidence_url,outcome,confidence,tags,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(key,x.kind,x.title,x.content,x.status,x.work_id,x.evidence_url,x.outcome,x.confidence,x.tags,1,t,t).run();
-return one(db,key);}
+async function card(db,key){const item=await one(db,key);if(!item)throw new Bad(404,'memory_not_found');return buildMemoryCard(item);}
+async function save(db,args){
+ restrict(args,[...EDIT,'request_id']);const {request_id,...fields}=args;
+ if(request_id!==undefined&&(typeof request_id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(request_id)))throw new Bad(400,'invalid_request_id');
+ const x=clean(fields,true),key=id(),t=stamp();
+ // Hash normalized values in fixed field order; key order/omitted defaults do not change identity.
+ const fingerprint=request_id===undefined?null:await hash(JSON.stringify(EDIT.map(k=>[k,x[k]])));
+ const snapshot={id:key,...x,tags:JSON.parse(x.tags),metadata:JSON.parse(x.metadata),revision:1,created_at:t,updated_at:t};
+ const row=await db.prepare('INSERT INTO memories (id,kind,title,content,status,work_id,evidence_url,outcome,confidence,tags,metadata,revision,created_at,updated_at,save_request_id,save_request_hash,save_response) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(save_request_id) WHERE save_request_id IS NOT NULL DO NOTHING RETURNING *').bind(key,x.kind,x.title,x.content,x.status,x.work_id,x.evidence_url,x.outcome,x.confidence,x.tags,x.metadata,1,t,t,request_id??null,fingerprint,request_id===undefined?null:JSON.stringify(snapshot)).first();
+ if(row)return memory(row);
+ const prior=await db.prepare('SELECT save_request_hash,save_response FROM memories WHERE save_request_id=?').bind(request_id).first();
+ if(!prior||prior.save_request_hash!==fingerprint)throw new Bad(409,'request_id_conflict');
+ // Return the creation receipt, never the later edited/deleted row. This does not restore anything.
+ return JSON.parse(prior.save_response);
+}
 async function edit(db,key,args,version=null){const before=await one(db,key);if(!before)throw new Bad(404,'memory_not_found');if(version!==null&&version!==before.revision)throw new Bad(409,'revision_conflict');
 const x=clean(args);if(!Object.keys(x).length)throw new Bad(400,'empty_patch');
 const fields=Object.keys(x),values=fields.map(k=>x[k]),sql='UPDATE memories SET '+fields.map(k=>k+'=?').join(',')+',revision=revision+1,updated_at=? WHERE id=? AND revision=? RETURNING *';
@@ -69,13 +84,7 @@ params.push(...Array(5).fill('%'+args.q+'%'));
 const col=sortCols.includes(args.sort)?args.sort:'updated_at',max=Math.min(200,Math.max(1,Number(args.limit)||100));
 const sql='SELECT * FROM memories'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY '+col+(col==='title'?' ASC':' DESC')+', id DESC LIMIT ?';
 const r=await db.prepare(sql).bind(...params,max).all();return (r.results||[]).map(memory);}
-function tokenize(t){const found=new Set(),words=String(t||'').toLowerCase().match(/[\p{L}\p{M}\p{N}_-]+/gu)||[];
-for(const w of words){if(w.length>1)found.add(w);if(/[\u0e00-\u0e7f]/.test(w))for(let n=2;n<=4;n++)for(let i=0;i+n<=w.length;i++)found.add(w.slice(i,i+n));}return found;}
-async function search(db,query,limit=25){if(typeof query!=='string'||!query.trim()||query.length>200)throw new Bad(400,'invalid_query');const wanted=tokenize(query),r=await db.prepare("SELECT * FROM memories WHERE status IN ('active','needs_review') ORDER BY updated_at DESC LIMIT 2000").all(),hits=[];
-if(!wanted.size)throw new Bad(400,'invalid_query');
-for(const raw of r.results||[]){const x=memory(raw),got=tokenize([x.title,x.title,x.title,x.content,x.work_id,x.outcome,...x.tags].join(' '));let n=0;for(const term of wanted)if(got.has(term))n++;if(n)hits.push({score:Math.round(1000*n/wanted.size)/1000,memory:x});}
-hits.sort((a,b)=>b.score-a.score||b.memory.updated_at.localeCompare(a.memory.updated_at));const rows=hits.slice(0,Math.min(50,Math.max(1,Number(limit)||25)));
-return {query,method:'lexical-v2',items:rows,count:rows.length,notice:'Lexical matching only; GO interprets the evidence.'};}
+async function search(db,query,limit=25,options={}){try{return await keywordSearch(db,{query,limit,...options});}catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}}
 async function summary(db,query,limit=10){const r=await search(db,query,Math.min(20,Number(limit)||10));return {type:'source_excerpts_not_ai_summary',query,items:r.items.map(x=>({id:x.memory.id,title:x.memory.title,evidence_url:x.memory.evidence_url,revision:x.memory.revision,excerpt:x.memory.content.slice(0,700)})),count:r.count};}
 async function body(req,allowEmpty=false,maxLength=1000000){const txt=await req.text();if(txt.length>maxLength)throw new Bad(413,'body_too_large');if(allowEmpty&&!txt.trim())return {};try{return JSON.parse(txt);}catch{throw new Bad(400,'invalid_json');}}
 async function api(req,env,url,ctx){if(!(await owner(req,env,ctx)))return error(401,'owner_auth_required');const p=url.pathname,m=req.method,d=env.DB;
@@ -114,7 +123,7 @@ if(approvalRoute){
  return error(405,'method_not_allowed');
 }
 if(p==='/api/stats'&&m==='GET'){const r=await d.prepare('SELECT status,COUNT(*) AS n FROM memories GROUP BY status').all();const out=Object.fromEntries(STAT.map(x=>[x,0]));for(const x of r.results||[])out[x.status]=x.n;return reply(out);}
-if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25));
+if(p==='/api/retrieve'&&m==='GET')return reply(await search(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||25,Object.fromEntries(['status','kind','match','cursor'].filter(k=>url.searchParams.has(k)).map(k=>[k,url.searchParams.get(k)])))) ;
 if(p==='/api/summarize'&&m==='GET')return reply(await summary(d,url.searchParams.get('q')||'',url.searchParams.get('limit')||10));
 if(p==='/api/context'&&m==='GET'){
  const mode=url.searchParams.get('mode')||'operational';
@@ -137,8 +146,9 @@ if(p==='/api/references/audit'&&m==='GET'){
  catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
 }
 if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
-const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status))?$/.exec(p);
+const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status|card))?$/.exec(p);
 if(!hit)return error(404,'not_found');const key=hit[1],action=hit[2];
+if(m==='GET'&&action==='card')return reply(await card(d,key));
 if(m==='GET'&&action==='history')return reply({items:await audit(d,key)});
 if(m==='GET'&&!action){const x=await one(d,key);return x?reply(x):error(404,'memory_not_found');}
 if(m==='PATCH'&&!action){const args=await body(req),version=args.expected_revision;delete args.expected_revision;if(!Number.isInteger(version))throw new Bad(400,'expected_revision_required');return reply(await edit(d,key,args,version));}
@@ -148,7 +158,7 @@ if(m==='POST'&&action==='restore'){const args=await body(req);restrict(args,['ex
 return error(405,'method_not_allowed');}
 const SCHEMA=(properties,required=[])=>({type:'object',properties,required,additionalProperties:false});
 const type=(s)=>({type:s}),Q=type('string'),N=type('integer');
-const fields={kind:Q,title:Q,content:Q,status:Q,work_id:Q,evidence_url:Q,outcome:Q,confidence:Q,tags:{type:'array',items:Q}};
+const fields={kind:Q,title:Q,content:Q,status:Q,work_id:Q,evidence_url:Q,outcome:Q,confidence:Q,tags:{type:'array',items:Q},metadata:METADATA_SCHEMA};
 // Business intent is supplied to GO; Factory assigns its own job ID.
 const GO_FACTORY_CODE=SCHEMA({baseSource:Q,
   patch:SCHEMA({find:Q,replace:type('string')},['find','replace']),
@@ -205,10 +215,11 @@ export const tools=[
  {name:'goview_propose_pin',description:'Propose a labelled place coordinate to owner GOVIEW. Device shows owner confirmation; no write until approved. This is an unverified suggested location.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},label:{type:'string',minLength:1,maxLength:140},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude','label'])},
  {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
-{name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N},['query'])},
+{name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N,status:Q,kind:Q,match:{type:'string',enum:['all','any','phrase']},cursor:Q},['query'])},
 {name:'brain_retrieve',description:'Return an exact memory record by its internal record ID.',inputSchema:SCHEMA({id:Q},['id'])},
 {name:'brain_list',description:'Organize and list memories by filters and sort order.',inputSchema:SCHEMA({kind:Q,status:Q,q:Q,sort:Q,limit:N})},
-{name:'brain_save',description:'Save exactly supplied memory details. GO makes the decision.',inputSchema:SCHEMA(fields,['title','content'])},
+{name:'brain_card',description:'Read a source-backed Memory Card by ID, including inactive records. No inference or source verification.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
+{name:'brain_save',description:'Save supplied memory once. Reuse request_id with the same payload on retry; replay returns the original creation revision, not current state. GO makes the decision.',inputSchema:SCHEMA({...fields,request_id:{type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'}},['title','content'])},
 {name:'brain_edit',description:'Change only the specified fields if the expected revision matches.',inputSchema:SCHEMA({id:Q,expected_revision:N,...fields},['id','expected_revision'])},
 {name:'brain_set_status',description:'Explicitly archive, delete, restore, or flag a record.',inputSchema:SCHEMA({id:Q,status:Q,expected_revision:N},['id','status','expected_revision'])},
 {name:'brain_history',description:'Read an exact record change history with snapshots.',inputSchema:SCHEMA({id:Q},['id'])},
@@ -248,7 +259,7 @@ async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
 if(name.startsWith('github_code_job_'))throw new Bad(403,'OWNER_APPROVAL_ROUTE_REQUIRED');
-if(!local&&hubGroup(name)&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:search|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name)))return hubTool(env,name,a);
+if(!local&&hubGroup(name)&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:card|search|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name)))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
@@ -279,7 +290,8 @@ if(name==='factory_direct_job_status'){restrict(a,['requestId']);return factoryD
 if(name==='factory_direct_readback'){restrict(a,['receiptId']);return factoryDirectReadback(env,a);}
 if(name==='factory_direct_artifact'){restrict(a,['receiptId','artifactRef']);return factoryDirectArtifact(env,a);}
 if(name==='factory_code_deliver_github'){restrict(a,['receiptId','repo','baseSha','filePath','requestId','approved']);if(a.approved!==true)throw new Bad(403,'explicit_owner_approval_required');return deliverFactoryCodeToGithub(env,a);}
-if(name==='brain_search'){restrict(a,['query','limit']);return search(d,a.query,a.limit);}
+if(name==='brain_search'){restrict(a,['query','limit','status','kind','match','cursor']);const {query,limit,...options}=a;return search(d,query,limit,options);}
+if(name==='brain_card'){restrict(a,['id']);return card(d,a.id);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};
 if(name==='brain_save')return save(d,a);

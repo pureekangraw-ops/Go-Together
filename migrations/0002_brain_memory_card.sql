@@ -1,0 +1,10 @@
+-- Apply once to the existing schema; additive, no source/history rewrites.
+ALTER TABLE memories ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE memories ADD COLUMN save_request_id TEXT;
+ALTER TABLE memories ADD COLUMN save_request_hash TEXT;
+ALTER TABLE memories ADD COLUMN save_response TEXT;
+CREATE UNIQUE INDEX idx_memory_save_request ON memories(save_request_id) WHERE save_request_id IS NOT NULL;
+DROP TRIGGER memories_ai;
+DROP TRIGGER memories_au;
+CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN INSERT INTO history(id,memory_id,action,before_json,after_json,created_at) VALUES(lower(hex(randomblob(16))),new.id,'created',NULL,json_object('id',new.id,'title',new.title,'content',new.content,'kind',new.kind,'status',new.status,'work_id',new.work_id,'evidence_url',new.evidence_url,'outcome',new.outcome,'confidence',new.confidence,'tags',json(new.tags),'metadata',json(new.metadata),'revision',new.revision,'created_at',new.created_at,'updated_at',new.updated_at),new.updated_at); END;
+CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN INSERT INTO history(id,memory_id,action,before_json,after_json,created_at) VALUES(lower(hex(randomblob(16))),new.id,CASE WHEN new.status='deleted' AND old.status<>'deleted' THEN 'deleted' WHEN old.status='deleted' AND new.status='active' THEN 'restored' WHEN new.status<>old.status THEN 'status_changed' ELSE 'updated' END,json_object('id',old.id,'title',old.title,'content',old.content,'kind',old.kind,'status',old.status,'work_id',old.work_id,'evidence_url',old.evidence_url,'outcome',old.outcome,'confidence',old.confidence,'tags',json(old.tags),'metadata',json(old.metadata),'revision',old.revision,'created_at',old.created_at,'updated_at',old.updated_at),json_object('id',new.id,'title',new.title,'content',new.content,'kind',new.kind,'status',new.status,'work_id',new.work_id,'evidence_url',new.evidence_url,'outcome',new.outcome,'confidence',new.confidence,'tags',json(new.tags),'metadata',json(new.metadata),'revision',new.revision,'created_at',new.created_at,'updated_at',new.updated_at),new.updated_at); END;

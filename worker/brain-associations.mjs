@@ -157,8 +157,9 @@ export async function drainAssociations(env,{requester=fetch,limit=5}={}){
  const max=Number.isInteger(limit)&&limit>0?Math.min(limit,10):5;
  const jobs=(await env.DB.prepare(
   "SELECT r.memory_id AS id,r.revision FROM brain_association_runs r JOIN memories m ON m.id=r.memory_id AND m.revision=r.revision "+
-  "WHERE r.state='pending' AND r.extractor_version=? AND m.status IN "+LIVE+
-  " ORDER BY r.created_at ASC,r.memory_id ASC LIMIT ?").bind(EXTRACTOR_VERSION,max).all()).results||[];
+  "WHERE (r.state='pending' OR (r.state='running' AND r.lease_until IS NOT NULL AND r.lease_until<?)) "+
+  "AND r.extractor_version=? AND m.status IN "+LIVE+
+  " ORDER BY r.created_at ASC,r.memory_id ASC LIMIT ?").bind(new Date().toISOString(),EXTRACTOR_VERSION,max).all()).results||[];
  const results=[];
  for(const job of jobs)results.push(await processAssociation(env,{id:job.id,expected_revision:job.revision},{requester}));
  return {processed:results.length,results};

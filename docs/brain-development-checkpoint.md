@@ -21,3 +21,14 @@ Owner requested stopping at a safe point, then explicitly authorized committing 
 No agents/new repos, live OpenAI calls, secret export, production binding changes, remote DB writes, merges or deployments occurred. Owner subsequently authorized a WIP checkpoint commit/push only. Beaver was inspected read-only and not modified. Current combined tree is a work in progress, not release-ready.
 
 Resume from docs/superpowers/plans/2026-11-12-brain-search-associations.md and the failing association tests; inspect git status and all instructions again first.
+
+
+## GO continuation after WIP checkpoint (same day, feature branch only)
+- Started from preserved commit `504d6792b86ac0ebc5cfad705d7eea8080a84e7d`. Owner requested continuing code and strictly preserving the agreed Brain goal, no added features.
+- Implemented the previously stubbed `worker/brain-associations.mjs`: bounded OpenAI Responses structured extraction, strict local source-quote validation, only suggested `related` links, single-current-revision lease, sanitized errors, retry and bounded drain. No real provider call was made.
+- Updated the two existing regression tests to recognize a read-only `WITH` search query and additional revisioned index trigger writes; other expected behavior remains asserted.
+- Added independent MCP tool declarations/dispatch for `brain_keyword_finder`, `brain_association_status`, and `brain_association_process`, including the standalone Brain allowlist.
+- Opened **draft PR #64**: https://github.com/pureekangraw-ops/Go-Together/pull/64. Never merged or deployed.
+- **Verification is pending**: the last completed full suite remains the 232 passed / 10 failed result at `504d679`. The new association module and MCP integration passed JavaScript syntax parsing only, NOT their functional tests. No GitHub Actions run was visible for the current head at the time of this note. Do not claim the suite is green.
+- Outstanding within approved scope only: run combined tests and fix real failures; verify required migration ordering; wire safe post-save/background processing, configure Brain-only secret binding without exporting key, verify both Wrangler builds and authenticated hosted behavior before any owner-approved release.
+- Source memory, existing history and production D1 were not edited. No additional repo, agent, vector service, tier/pricing feature, deployment or remote migration.

@@ -1,6 +1,13 @@
 import {keywordSearch} from './brain-search.mjs';
 import {keywordFinder,associationStatus} from './brain-keywords.mjs';
 import {processAssociation} from './brain-associations.mjs';
+// Derived indexing is advisory and must never turn a successful memory write into a failed response.
+function scheduleAssociation(ctx,env,memory){
+ if(env.BRAIN_ASSOCIATIONS_ENABLED!=='true'||typeof ctx?.waitUntil!=='function'||
+   !memory?.id||!Number.isInteger(memory.revision)||!['active','needs_review'].includes(memory.status))return;
+ try{ctx.waitUntil(processAssociation(env,{id:memory.id,expected_revision:memory.revision}).catch(()=>undefined));}
+ catch{/* the saved source is authoritative; the pending job remains for the drain */}
+}
 import {normalizeMetadata,buildMemoryCard,METADATA_SCHEMA} from './brain-card.mjs';
 import {REPOSITORY_JOB_SCHEMA,dispatchRepositoryJob,readRepositoryJob} from './factory-repository-job.mjs';
 import {goCiAcceptance} from './release-ci.mjs';
@@ -147,16 +154,16 @@ if(p==='/api/references/audit'&&m==='GET'){
  try{return reply(await auditReferences(d,limit));}
  catch(e){if(e instanceof RangeError)throw new Bad(400,e.message);throw e;}
 }
-if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST')return reply(await save(d,await body(req)),201);}
+if(p==='/api/memories'){if(m==='GET'){const items=await listing(d,Object.fromEntries(url.searchParams));return reply({items,count:items.length});}if(m==='POST'){const item=await save(d,await body(req));scheduleAssociation(ctx,env,item);return reply(item,201);}}
 const hit=/^\/api\/memories\/([0-9a-f-]{36})(?:\/(history|restore|status|card))?$/.exec(p);
 if(!hit)return error(404,'not_found');const key=hit[1],action=hit[2];
 if(m==='GET'&&action==='card')return reply(await card(d,key));
 if(m==='GET'&&action==='history')return reply({items:await audit(d,key)});
 if(m==='GET'&&!action){const x=await one(d,key);return x?reply(x):error(404,'memory_not_found');}
-if(m==='PATCH'&&!action){const args=await body(req),version=args.expected_revision;delete args.expected_revision;if(!Number.isInteger(version))throw new Bad(400,'expected_revision_required');return reply(await edit(d,key,args,version));}
+if(m==='PATCH'&&!action){const args=await body(req),version=args.expected_revision;delete args.expected_revision;if(!Number.isInteger(version))throw new Bad(400,'expected_revision_required');const item=await edit(d,key,args,version);scheduleAssociation(ctx,env,item);return reply(item);}
 if(m==='DELETE'&&!action){const x=await one(d,key);if(!x)throw new Bad(404,'memory_not_found');return reply({ok:true,item:await edit(d,key,{status:'deleted'},x.revision)});}
-if(m==='POST'&&action==='status'){const args=await body(req);restrict(args,['status','expected_revision']);if(!Number.isInteger(args.expected_revision))throw new Bad(400,'expected_revision_required');return reply(await edit(d,key,{status:args.status},args.expected_revision));}
-if(m==='POST'&&action==='restore'){const args=await body(req);restrict(args,['expected_revision']);const x=await one(d,key);if(!x)throw new Bad(404,'memory_not_found');return reply(await edit(d,key,{status:'active'},args.expected_revision??x.revision));}
+if(m==='POST'&&action==='status'){const args=await body(req);restrict(args,['status','expected_revision']);if(!Number.isInteger(args.expected_revision))throw new Bad(400,'expected_revision_required');const item=await edit(d,key,{status:args.status},args.expected_revision);scheduleAssociation(ctx,env,item);return reply(item);}
+if(m==='POST'&&action==='restore'){const args=await body(req);restrict(args,['expected_revision']);const x=await one(d,key);if(!x)throw new Bad(404,'memory_not_found');const item=await edit(d,key,{status:'active'},args.expected_revision??x.revision);scheduleAssociation(ctx,env,item);return reply(item);}
 return error(405,'method_not_allowed');}
 const SCHEMA=(properties,required=[])=>({type:'object',properties,required,additionalProperties:false});
 const type=(s)=>({type:s}),Q=type('string'),N=type('integer');
@@ -260,7 +267,7 @@ export const tools=[
 {name:'factory_code_deliver_github',description:'Create a GitHub work branch, exact CODE source file and review PR only from a verified existing GO-owned Factory CODE receipt. No rerun, merge or deployment; uncertain effects require read-only reconciliation.',inputSchema:SCHEMA({receiptId:Q,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['receiptId','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 ];
 
-async function toolCall(name,a,d,env,local=false){if(!a||typeof a!=='object')a={};
+async function toolCall(name,a,d,env,local=false,ctx=null){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
 if(name.startsWith('github_code_job_'))throw new Bad(403,'OWNER_APPROVAL_ROUTE_REQUIRED');
@@ -302,9 +309,9 @@ if(name==='brain_association_process'){restrict(a,['id','expected_revision','ret
 if(name==='brain_card'){restrict(a,['id']);return card(d,a.id);}
 if(name==='brain_retrieve'){restrict(a,['id']);return one(d,a.id);}
 if(name==='brain_list')return {items:await listing(d,a)};
-if(name==='brain_save')return save(d,a);
-if(name==='brain_edit'){restrict(a,['id','expected_revision',...EDIT]);const {id,expected_revision,...patch}=a;if(!Number.isInteger(expected_revision))throw new Bad(400,'expected_revision_required');return edit(d,id,patch,expected_revision);}
-if(name==='brain_set_status'){restrict(a,['id','status','expected_revision']);if(!Number.isInteger(a.expected_revision))throw new Bad(400,'expected_revision_required');return edit(d,a.id,{status:a.status},a.expected_revision);}
+if(name==='brain_save'){const item=await save(d,a);scheduleAssociation(ctx,env,item);return item;}
+if(name==='brain_edit'){restrict(a,['id','expected_revision',...EDIT]);const {id,expected_revision,...patch}=a;if(!Number.isInteger(expected_revision))throw new Bad(400,'expected_revision_required');const item=await edit(d,id,patch,expected_revision);scheduleAssociation(ctx,env,item);return item;}
+if(name==='brain_set_status'){restrict(a,['id','status','expected_revision']);if(!Number.isInteger(a.expected_revision))throw new Bad(400,'expected_revision_required');const item=await edit(d,a.id,{status:a.status},a.expected_revision);scheduleAssociation(ctx,env,item);return item;}
 if(name==='brain_history'){restrict(a,['id']);return {items:await audit(d,a.id)};}
 if(name==='brain_summarize'){restrict(a,['query','limit']);return summary(d,a.query,a.limit);}
 if(name==='brain_reference_check'){
@@ -358,7 +365,7 @@ async function mcp(req,env,ctx){
   const name=x.params?.name,a=x.params?.arguments||{};
   if(!tools.some(t=>t.name===name))return reply({jsonrpc:'2.0',id:x.id,error:{code:-32601,message:'unknown_tool'}});
   try{
-   const value=await toolCall(name,a,env.DB,env);
+   const value=await toolCall(name,a,env.DB,env,false,ctx);
    if(name==='observatory_screenshot' && value?.ok===true && value?.result?.mimeType==='image/jpeg' &&
       typeof value?.result?.image==='string')
     return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),

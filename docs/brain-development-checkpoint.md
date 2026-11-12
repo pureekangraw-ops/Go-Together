@@ -43,3 +43,9 @@ Resume from docs/superpowers/plans/2026-11-12-brain-search-associations.md and t
 - Targeted **mocked execution of the exact branch association module passed six checks**, covering missing binding, provider 429 sanitization, stale source revision, unsupported evidence, valid extraction / duplicate processing and post-save scheduling guard. These are not a substitute for real SQLite/D1 or hosted acceptance. New integration test file is committed but **not yet executed on a Node test runner**.
 - The container could not clone the public repository because its network had no GitHub DNS access, and GitHub commit workflow queries returned no test runs. Therefore **the full test suite has NOT been rerun**; earlier 232 passed / 10 failed remains historical and must not be reported as current. Keep Draft PR #64 unmerged.
 - Remaining before release: run the full real SQLite/Node suite and fix failures, resolve migration application order from the live D1 migration ledger, perform both Wrangler dry-runs, and validate the real Brain connector in a controlled release. No merged/deployed code, remote DB migrations, real provider calls or exported secret values.
+
+
+## Additional targeted SQLite smoke check (2026-11-12)
+- Executed a **local SQLite 3.46.1** temporary in-memory smoke script using the `0003_brain_associations.sql` DDL and trigger statements against a minimal compatible `memories` table (not the full repository test harness).
+- All five local checks passed: DDL/triggers compile; initial insert creates one pending run and GO-supplied keyword; edit supersedes the old run and indexes the new revision; soft delete supersedes and skips a new API run; restore creates a fresh pending run.
+- This is targeted SQL evidence, **not an execution of `node --test tests/*.test.mjs`**, not a D1 hosted migration, and not proof of the complete schema/migration history. The user should not be asked to run manual commands.

@@ -71,6 +71,34 @@ test('drain processes only bounded current pending jobs and skips failed/histori
  assert.equal(calls,1);assert.equal((await associationStatus(s.DB,c)).state,'ready');assert.equal((await associationStatus(s.DB,a)).state,'failed');
 });
 
+test('late expired worker cannot erase a successor lease publication',async t=>{
+ const s=testDatabase();t.after(s.close);
+ const id=seed(s.sql),target=seed(s.sql,{content:'Beaver/บีเวอร์ reference'});
+ const relation={target_id:target,target_revision:1,type:'related',evidence,target_evidence:evidence};
+ let notifyOld,releaseOld;
+ const oldRequested=new Promise(resolve=>{notifyOld=resolve;});
+ const old=processAssociation(environment(s.DB),{id,expected_revision:1},{requester:async()=>{
+  notifyOld();
+  return new Promise(resolve=>{releaseOld=()=>resolve(response(output([relation])));});
+ }});
+ await oldRequested;
+ // Simulate a crashed/delayed Worker whose lease expires while its API call is pending.
+ s.sql.prepare("UPDATE brain_association_runs SET lease_until='2000-01-01T00:00:00.000Z' WHERE memory_id=?").run(id);
+ const newer=await processAssociation(environment(s.DB),{id,expected_revision:1},
+  {requester:async()=>response(output([relation]))});
+ assert.equal(newer.state,'ready');
+ const aiCount=()=>s.sql.prepare("SELECT COUNT(*) AS n FROM brain_memory_terms WHERE memory_id=? AND provenance='ai_suggested'").get(id).n;
+ const linkCount=()=>s.sql.prepare("SELECT COUNT(*) AS n FROM brain_memory_links l JOIN brain_association_runs r ON l.run_id=r.id WHERE r.memory_id=?").get(id).n;
+ const publishedTerms=aiCount();
+ assert.ok(publishedTerms>0);
+ assert.equal(linkCount(),1);
+ releaseOld();
+ await old;
+ assert.equal((await associationStatus(s.DB,id)).state,'ready');
+ assert.equal(aiCount(),publishedTerms,'old lease must not erase new indexed terms');
+ assert.equal(linkCount(),1,'old lease must not erase new relation');
+});
+
 test('expired running lease recovers, but active running job is not restarted',async t=>{
  const s=testDatabase();t.after(s.close);
  const expired=seed(s.sql),inFlight=seed(s.sql);

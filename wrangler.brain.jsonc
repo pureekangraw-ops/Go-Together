@@ -9,7 +9,9 @@
     "BRAIN_AUTH_MODE": "ACCESS",
     "OWNER_EMAIL": "pureekangraw@gmail.com",
     "ACCESS_AUD": "6b7b2007c1ae1b5e9215681bc94fd1b41edf3c6d4c87d3afebda01afd69c2dc8",
-    "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com"
+    "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com",
+    "BRAIN_ASSOCIATIONS_ENABLED": "true",
+    "BRAIN_ASSOCIATION_MODEL": "gpt-4.1-mini-2025-04-14"
   },
   "d1_databases": [
     {
@@ -17,5 +19,17 @@
       "database_name": "go-together",
       "database_id": "6f68d68b-df46-4c44-8c65-7491a1a2f17b"
     }
-  ]
+  ],
+  "secrets_store_secrets": [
+    {
+      "binding": "BRAIN_ASSOCIATION_API_KEY",
+      "store_id": "8de46cb689fc4779875025b618d3bbd4",
+      "secret_name": "IMAGE_OPENAI_TOKEN"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
+  }
 }

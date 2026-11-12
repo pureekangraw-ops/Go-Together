@@ -1,3 +1,4 @@
+import {testDatabase} from './brain-test-db.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker,{appMcp} from '../worker/index.js';
@@ -68,9 +69,11 @@ test('Context packaging rejects unexpected mode and limits',()=>{
 });
 const ROOT='https://go-together.pureekangraw.workers.dev';
 const rows=[{...RCA,tags:JSON.stringify(RCA.tags)},{...WORK,tags:JSON.stringify(WORK.tags)}];
+const contextDB=testDatabase();
+for(const m of rows)contextDB.sql.prepare('INSERT INTO memories(id,kind,title,content,status,work_id,evidence_url,confidence,tags,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(m.id,m.kind,m.title,m.content,m.status,m.work_id,m.evidence_url,m.confidence,m.tags,m.revision,m.updated_at,m.updated_at);
 const env={
  ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',
- DB:{prepare:()=>({all:async()=>({results:rows}),first:async()=>({healthy:1})})},
+ DB:contextDB.DB,
  ASSETS:{fetch:async()=>new Response('unused')}
 };
 const authorized={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
@@ -103,3 +106,5 @@ test('Brain MCP group exposes read-only context and does not write to D1',async(
  assert.equal(result.records[0].record_id,RCA.id);
  assert.equal(result.count,2);
 });
+
+test.after(()=>contextDB.close());

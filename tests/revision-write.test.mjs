@@ -38,10 +38,10 @@ function setup(){
 }
 async function create(s,title='Synthetic task'){return s.invoke('brain_save',{title,content:'before',tags:['fixture']});}
 
-test('MCP edit succeeds when audit trigger makes D1 changes equal two',async t=>{
+test('MCP edit includes source, history and derived-index changes in D1 change count',async t=>{
  const s=setup();t.after(()=>s.sql.close());const item=await create(s);
  const edited=await s.invoke('brain_edit',{id:item.id,expected_revision:1,content:'after'});
- assert.deepEqual(s.metrics,[2]);assert.equal(edited.error,undefined);
+ // One memory update, one history event, and three derived-index trigger mutations.\n assert.deepEqual(s.metrics,[5]);assert.equal(edited.error,undefined);
  assert.equal(edited.content,'after');assert.equal(edited.revision,2);assert.deepEqual(edited.tags,['fixture']);
  const history=await s.invoke('brain_history',{id:item.id});
  assert.equal(history.items.length,2);

@@ -1,11 +1,13 @@
 // GO-Together: Cloudflare Access is the sole OAuth authority for this MCP.
 // Do not publish a second OAuth issuer on the Worker origin.
 import brainWorker from './index.js';
+import {drainAssociations} from './brain-associations.mjs';
 
 const ORIGIN = 'https://go-together.pureekangraw.workers.dev';
 const ACCESS_ISSUER = 'https://pureekangraw.cloudflareaccess.com';
 const ALLOWED = new Set([
-  'brain_search', 'brain_retrieve', 'brain_list', 'brain_save',
+  'brain_card', 'brain_search', 'brain_keyword_finder', 'brain_association_status',
+  'brain_association_process', 'brain_retrieve', 'brain_list', 'brain_save',
   'brain_edit', 'brain_set_status', 'brain_history', 'brain_summarize',
   'brain_reference_check', 'brain_reference_audit', 'brain_context',
 ]);
@@ -15,6 +17,10 @@ const json = (value, status = 200, headers = {}) => new Response(
 );
 
 export default {
+  async scheduled(_event,env,ctx){
+    if(env.BRAIN_ASSOCIATIONS_ENABLED!=='true'||!env.BRAIN_ASSOCIATION_API_KEY?.get||typeof ctx?.waitUntil!=='function')return;
+    ctx.waitUntil(drainAssociations(env,{limit:5}).catch(()=>undefined));
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;

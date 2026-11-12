@@ -31,3 +31,29 @@ test('Finder invalidates both incoming and outgoing links on target revision cha
  assert.equal((await keywordFinder(s.DB,{query:'beaver'})).items[0].relations.length,0);
  assert.equal((await keywordFinder(s.DB,{query:'octopus'})).items[0].relations.length,0);
 });
+test('Finder retains matching evidence beyond its expansion cap',async t=>{
+ const s=testDatabase();t.after(s.close);const id=seed(s.sql,{tags:[]});
+ const run=s.sql.prepare('SELECT id FROM brain_association_runs WHERE memory_id=?').get(id).id;
+ s.sql.prepare("UPDATE brain_association_runs SET state='ready' WHERE id=?").run(run);
+ for(let i=0;i<121;i++){
+  const term=i===120?'zzneedle':'aaa'+String(i).padStart(3,'0');
+  s.sql.prepare("INSERT INTO brain_memory_terms(memory_id,revision,run_id,term,label,kind,entity_key,provenance,evidence_json) VALUES(?,1,?,?,?,'alias','entity','ai_suggested','{}')").run(id,run,term,term);
+ }
+ const found=await keywordFinder(s.DB,{query:'zzneedle'});
+ assert.equal(found.items[0]?.matches[0]?.label,'zzneedle');assert.ok(found.items[0].paths.length<=20);
+});
+test('Finder matches Unicode explicit tags without rewriting them',async t=>{
+ const s=testDatabase();t.after(s.close);const id=seed(s.sql,{tags:['ÉCOLE']});
+ const found=await keywordFinder(s.DB,{query:'école'});
+ assert.equal(found.items[0]?.memory_id,id);assert.equal(found.items[0].matches[0].label,'ÉCOLE');
+});
+
+test('Unicode Finder paginates after matching across candidate batches',async t=>{
+ const s=testDatabase();t.after(s.close);
+ for(let i=0;i<105;i++)seed(s.sql,{tags:['unrelated'],updated_at:'2026-11-13T00:00:00Z'});
+ const a=seed(s.sql,{tags:['ÉCOLE'],updated_at:'2026-11-12T00:00:00Z'});
+ const b=seed(s.sql,{tags:['école'],updated_at:'2026-11-11T00:00:00Z'});
+ const first=await keywordFinder(s.DB,{query:'école',limit:1});assert.equal(first.items[0]?.memory_id,a);
+ const next=await keywordFinder(s.DB,{query:'école',limit:1,cursor:first.next_cursor});
+ assert.equal(next.items[0]?.memory_id,b);assert.equal(next.next_cursor,null);
+});

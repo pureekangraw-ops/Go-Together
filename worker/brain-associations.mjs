@@ -1,6 +1,24 @@
 // Bounded, evidence-backed derived indexing. This module never modifies source memories.
 import {EXTRACTOR_VERSION,associationStatus} from './brain-keywords.mjs';
 
+const IPV4_LOOPBACK_PATTERN = /^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+
+export function isAllowedOperatorUrl(urlStr, env = {}) {
+ try {
+  const u = new URL(urlStr);
+  const host = u.hostname.toLowerCase().trim();
+  if (host === 'localhost' || host === '::1' || host === '[::1]' || IPV4_LOOPBACK_PATTERN.test(host)) {
+   return true;
+  }
+  if (env.ALLOW_PUBLIC_OPERATOR_FOR_TESTING === 'true') {
+   return true;
+  }
+  return false;
+ } catch {
+  return false;
+ }
+}
+
 const LIVE = "('active','needs_review')";
 const SCHEMA = {
  type:'object',additionalProperties:false,required:['intents','entities','keywords','relations'],properties:{
@@ -89,12 +107,25 @@ export async function processAssociation(env,{id,expected_revision,retry_failed=
   .bind(token,leaseUntil,now.toISOString(),run.id,retry_failed?1:0,now.toISOString(),id,expected_revision).run();
  if(claim.meta.changes!==1)return associationStatus(db,id);
  run.memory_id=id;
+ const isAgy=env.BRAIN_OPERATOR==='agy'||Boolean(env.BRAIN_OPERATOR_URL);
+ if(!isAgy&&env.ZERO_PAID_API==='true')return fail(db,run,token,'zero_paid_api_enforced');
+ const operatorUrl=env.BRAIN_OPERATOR_URL||(isAgy?'http://127.0.0.1:8788/v1/responses':'https://api.openai.com/v1/responses');
+ if(isAgy&&operatorUrl.includes('api.openai.com'))return fail(db,run,token,'zero_paid_api_violation');
+ if(isAgy&&!isAllowedOperatorUrl(operatorUrl,env))return fail(db,run,token,'operator_url_not_permitted');
  let secret;
- try{secret=await env.BRAIN_ASSOCIATION_API_KEY?.get?.();}
- catch{return fail(db,run,token,'secret_binding_unavailable');}
- if(typeof secret!=='string'||!secret.trim())return fail(db,run,token,'secret_binding_unavailable');
+ if(isAgy){
+  let opToken;
+  try{opToken=typeof env.BRAIN_OPERATOR_TOKEN?.get==='function'?await env.BRAIN_OPERATOR_TOKEN.get():env.BRAIN_OPERATOR_TOKEN;}
+  catch{return fail(db,run,token,'operator_token_required');}
+  if(typeof opToken!=='string'||opToken.trim().length<8)return fail(db,run,token,'operator_token_required');
+  secret=opToken.trim();
+ }else{
+  try{secret=await env.BRAIN_ASSOCIATION_API_KEY?.get?.();}
+  catch{return fail(db,run,token,'secret_binding_unavailable');}
+  if(typeof secret!=='string'||!secret.trim())return fail(db,run,token,'secret_binding_unavailable');
+ }
  if(env.BRAIN_ASSOCIATIONS_ENABLED!=='true')return fail(db,run,token,'associations_disabled');
- const model=env.BRAIN_ASSOCIATION_MODEL||'gpt-4.1-mini-2025-04-14';
+ const model=isAgy?'agy-google-ai-pro':(env.BRAIN_ASSOCIATION_MODEL||'gpt-4.1-mini-2025-04-14');
  const candidates=(await db.prepare(
   "SELECT id,revision,status,title,content,tags,outcome FROM memories WHERE id<>? AND status IN "+LIVE+" ORDER BY updated_at DESC,id DESC LIMIT 12"
  ).bind(id).all()).results||[];
@@ -104,17 +135,17 @@ export async function processAssociation(env,{id,expected_revision,retry_failed=
   text:{format:{type:'json_schema',name:'brain_associations',strict:true,schema:SCHEMA}}};
  let result;
  try{
-  const response=await requester('https://api.openai.com/v1/responses',{
+  const response=await requester(operatorUrl,{
    method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify(body)
   });
-  if(!response.ok)return fail(db,run,token,'provider_http_'+String(response.status));
+  if(!response.ok)return fail(db,run,token,isAgy?'agy_operator_failed':'provider_http_'+String(response.status));
   const payload=await response.json();
   if(payload.status!=='completed')return fail(db,run,token,'invalid_association_output');
   const texts=(payload.output||[]).flatMap(x=>(x.content||[]).filter(c=>c.type==='output_text').map(c=>c.text));
   if(texts.length!==1||texts[0].length>20000)return fail(db,run,token,'invalid_association_output');
   result=validate(JSON.parse(texts[0]),source,candidates);
   if(!result)return fail(db,run,token,'invalid_association_output');
- }catch(e){return fail(db,run,token,sanitizedCode(e));}
+ }catch(e){return fail(db,run,token,isAgy&&!(e instanceof RangeError)?'agy_operator_failed':sanitizedCode(e));}
  const current=await db.prepare('SELECT revision,status FROM memories WHERE id=?').bind(id).first();
  if(!current||current.revision!==expected_revision||!['active','needs_review'].includes(current.status))
   return {memory_id:id,revision:expected_revision,state:'superseded'};

@@ -20,6 +20,7 @@
 @media(max-width:390px){.app{padding:12px}.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:1/-1}.brand p{font-size:12px}.intro h2{font-size:23px}}
 .zones{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.zone{font-weight:700;flex:1;min-width:90px}.zone.active{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
 .approval-panel{margin:0 0 22px}.approval-note{margin:12px 16px;color:var(--muted);font-size:14px}.approval-list{padding:0 16px 8px}.approval-card{border-top:1px solid var(--line);padding:14px 0}.approval-card h4{margin:0 0 6px;font-size:16px}.approval-card pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;padding:12px;border-radius:8px;background:var(--surface);font-size:12px}.approval-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.review-confirm{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}.approval-status{font-weight:700}.approval-status.pending{color:var(--orange)}.approval-status.completed{color:var(--green)}.approval-status.unknown,.approval-status.failed,.approval-status.failed_no_execution{color:var(--red)}#approvals-jump{display:flex;align-items:center;gap:6px}.approval-panel .panel-head>div{display:flex;align-items:baseline;gap:10px}
+.scope-box{margin:10px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.scope-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.badge.safe{background:var(--green-soft);color:var(--green)}.badge.code{background:var(--blue-soft);color:var(--blue)}.badge.visual{background:var(--orange-soft);color:var(--orange)}.scope-chat{padding:10px 12px;border-radius:8px;background:var(--surface2);margin-bottom:12px;font-size:14px}.chat-row{margin:4px 0;line-height:1.4}.scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:14px}.scope-cell{display:flex;flex-direction:column;gap:3px}.scope-cell.full{grid-column:1/-1}.scope-lbl{color:var(--muted);font-size:13px}.scope-files{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.scope-file-tag{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);font-size:12px;font-family:monospace}.scope-desc{padding:8px 10px;border-radius:6px;background:var(--surface2);font-size:13px;line-height:1.4}
 .owner-nav{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.owner-nav a{display:inline-flex;align-items:center;min-height:44px;padding:9px 14px;border:1px solid var(--line);border-radius:8px;color:var(--blue);text-decoration:none}.owner-nav a:focus-visible{outline:3px solid var(--blue)}.session-note{overflow-wrap:anywhere}@media(max-width:760px){.topbar{flex-wrap:wrap}.local{max-width:none;text-align:left}.owner-nav a{flex:1;justify-content:center}}
 </style>
 </head>
@@ -38,8 +39,8 @@
   <p><small>Cloudflare ตรวจสอบสิทธิ์เจ้าของเมื่อเข้าถึงข้อมูลส่วนตัว หากหมดอายุให้เข้าสู่ระบบอีกครั้ง</small></p>
   <section class="intro"><h2>พื้นที่ทำงานส่วนตัวของ GO</h2><p>ดูความทรงจำ ทักษะ และคำขอ Factory ของคุณ ตรวจสอบคำขอและอนุมัติด้วยตัวเองก่อนเริ่มงาน</p></section>
   <section id="factory-approvals" class="approval-panel panel" aria-label="Factory job approvals">
-    <div class="panel-head"><div><h3>คำขออนุมัติ Factory</h3><span class="count" id="approval-count">Loading…</span></div><button type="button" id="approval-refresh">โหลดใหม่</button></div>
-    <p class="approval-note">คำขอจะรออยู่ใน GO จนกว่าคุณจะตรวจสอบ payload และ SHA-256 แล้วกด “Approve &amp; run” ด้วยตัวเอง ระบบบันทึกผู้อนุมัติ เวลา และ hash หากไม่ทราบผล (UNKNOWN) ให้ตรวจสอบสถานะเท่านั้น ไม่มีการส่งงานซ้ำอัตโนมัติ</p>
+    <div class="panel-head"><div><h3>🐙 โต๊ะเลขาหมึก &amp; ตรวจรับสโคปงาน (Octopus Scope Inbox)</h3><span class="count" id="approval-count">Loading…</span></div><button type="button" id="approval-refresh">โหลดใหม่</button></div>
+    <p class="approval-note"><strong>ด่านตรวจสอบสำหรับคุณ BIG:</strong> หน้านี้สรุปการคุยกันระหว่าง <strong>คุณ (Antigravity) ↔ โก (Go-Together) ↔ พี่หมึก (Octopus)</strong> ให้อ่านเข้าใจง่ายเป็นภาษาไทย ตรวจสอบสโคปด้านล่างแล้วกดยืนยันก่อนระบบจะเริ่มงานจริง</p>
     <p id="approval-target-note" class="approval-note hidden" role="status" aria-live="polite"></p>
     <div id="approval-list" class="approval-list" aria-live="polite"><div class="empty"><strong>Loading approvals</strong>Connecting to the owner approval inbox…</div></div>
   </section>
@@ -137,6 +138,28 @@ $("delete-btn").addEventListener("click",async()=>{if(!selected)return;try{await
 $("restore-btn").addEventListener("click",async()=>{if(!selected)return;try{await api(`/api/memories/${encodeURIComponent(selected)}/restore`,{method:"POST",body:JSON.stringify({expected_revision:revision})});toast("Memory restored");$("status-filter").value="all";await refresh();await loadItem(selected);}catch(e){toast(e.message);}});
 document.querySelectorAll(".zone").forEach(b=>b.addEventListener("click",()=>setZone(b.dataset.zone)));
 let timer;["search","kind-filter","status-filter"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{clearTimeout(timer);timer=setTimeout(refresh,id==="search"?180:0);}));
+function renderScopeCard(x){
+  const p=x.payload||{},domain=x.domain||'CODE';
+  let targetRepo='-',targetBranch='-',files=[],instruction='';
+  if(p.spec?.repositoryJob){
+    targetRepo=p.spec.repositoryJob.repo||'-';
+    targetBranch=p.spec.repositoryJob.branch||p.spec.repositoryJob.targetBranch||'กิ่งเฉพาะกิจ (beaver/* หรือ codex/*)';
+    files=p.spec.repositoryJob.files||[];
+    instruction=p.spec.repositoryJob.instruction||'';
+  }else if(p.githubDelivery){
+    targetRepo=p.githubDelivery.repo||'-';
+    targetBranch='จัดส่งตรงไปยัง GitHub';
+    files=[{path:p.githubDelivery.filePath||'-'}];
+  }else if(p.spec?.workshop){
+    instruction='งาน Digital Asset & Workshop Processing';
+  }
+  const domainMap={CODE:'💻 พัฒนาโค้ด (Coding)',VISUAL:'🎨 ประมวลผลรูปภาพ & Asset',LOGIC:'🧠 คำนวณตรรกะ & ข้อมูล',PROOF:'🔍 ตรวจรับหลักฐาน & เอกสาร'};
+  const domainTh=domainMap[domain]||domain;
+  const filesList=files.length>0
+    ?files.map(f=>`<span class="scope-file-tag">📄 ${esc(f.path)}</span>`).join(' ')
+    :'<span class="scope-lbl">ไม่มีการระบุไฟล์เจาะจง (ทำงานตามขอบเขตคำสั่ง)</span>';
+  return `<div class="scope-box"><div class="scope-badges"><span class="badge ${esc(domain.toLowerCase())}">${esc(domainTh)}</span><span class="badge safe">🛡️ Zero Paid API ($0.00)</span><span class="badge safe">🌿 ปลอดภัย (ไม่แตะ main)</span></div><div class="scope-chat"><div class="chat-row"><strong>🐙 พี่หมึก:</strong> เปิดใบงานตรวจสอบความพร้อมและจัดคิวส่งต่อ</div><div class="chat-row"><strong>🧠 โก (Go):</strong> ตรวจสิทธิ์เจ้าของ ล็อกขอบเขตคลังโค้ด และส่งมาให้คุณ BIG ยืนยัน</div><div class="chat-row"><strong>🤖 Antigravity:</strong> เสนอแผนแก้โค้ดและเตรียมรันชุดทดสอบให้ผ่าน 100% ก่อนส่งมอบ</div></div><div class="scope-grid"><div class="scope-cell"><span class="scope-lbl">คลังโค้ดเป้าหมาย:</span><strong>${esc(targetRepo)}</strong></div><div class="scope-cell"><span class="scope-lbl">กิ่งทำงาน:</span><strong>${esc(targetBranch)}</strong></div><div class="scope-cell full"><span class="scope-lbl">ไฟล์ที่จะดำเนินการ (${files.length} รายการ):</span><div class="scope-files">${filesList}</div></div>${instruction?`<div class="scope-cell full"><span class="scope-lbl">คำสั่งงาน:</span><div class="scope-desc">${esc(instruction)}</div></div>`:''}</div></div>`;
+}
 const uncertainApprovals=new Set();
 const requestedApprovalId=new URLSearchParams(location.search).get('approval');
 const validRequestedApprovalId=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedApprovalId||'')?requestedApprovalId:null;
@@ -161,23 +184,23 @@ async function refreshApprovals(){
       const payload=esc(JSON.stringify(x.payload||{},null,2));
       const when=esc(new Date(x.createdAt).toLocaleString());
       const uncertain=uncertainApprovals.has(x.id);
+      const scopeHtml=renderScopeCard(x);
       const buttons=x.status==='PENDING'&&!uncertain
-        ?`<label class="review-confirm"><input type="checkbox" data-reviewed="${esc(x.id)}" disabled> ตรวจสอบคำขอนี้ครบแล้ว · I reviewed this exact request</label><button class="primary" data-approve="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}" disabled>Approve &amp; run</button><button class="danger" data-reject="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}">Reject</button>`
+        ?`<label class="review-confirm"><input type="checkbox" data-reviewed="${esc(x.id)}"> <span>ฉันตรวจแล้วว่า <strong>Antigravity กับ โก</strong> คุยกันถูกต้องตามสโคปนี้</span></label><div class="actions"><button class="primary" data-approve="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}" disabled>✅ ยืนยันสโคป · เริ่มทำงาน</button><button class="danger" data-reject="${esc(x.id)}" data-payload-sha256="${esc(x.payloadSha256)}">❌ สโคปไม่ถูกต้อง · ปฏิเสธ</button></div>`
         :uncertain||['RUNNING','DISPATCHING','UNKNOWN'].includes(x.status)
           ?`<button data-check="${esc(x.id)}">ตรวจสอบสถานะ · Check status</button>`:'';
-      const proof=x.approvedBy?`<div class="meta">Approved by ${esc(x.approvedBy)} · ${esc(new Date(x.approvedAt).toLocaleString())} · payload ${esc(x.approvedPayloadSha256||'')}</div>`:'';
-      const rejected=x.rejectedBy?`<div class="meta">Rejected by ${esc(x.rejectedBy)} · ${esc(new Date(x.rejectedAt).toLocaleString())}</div>`:'';
-      const result=x.result?`<div class="meta">Latest result: ${esc(x.result.status||x.result.jobStatus||'recorded')} · request ${esc(x.requestId)}</div>`:'';
-      return `<article id="approval-${esc(x.id)}" class="approval-card"><h4>${esc(x.domain)} Factory job <span class="approval-status ${cls}">${status}</span></h4><div class="meta">Proposed ${when} · request ${esc(x.requestId)}</div><details data-review-details="${esc(x.id)}"><summary>Review exact request · SHA-256 ${esc(x.payloadSha256)}</summary><pre>${payload}</pre></details>${proof}${rejected}${result}${uncertain?'<p class="approval-note">ยังไม่ทราบผลคำขอก่อนหน้า ตรวจสอบสถานะเท่านั้น ห้ามอนุมัติซ้ำ</p>':''}<div class="approval-actions">${buttons}</div></article>`;
+      const proof=x.approvedBy?`<div class="meta">✅ อนุมัติโดย ${esc(x.approvedBy)} เมื่อ ${esc(new Date(x.approvedAt).toLocaleString())} · payload ${esc(x.approvedPayloadSha256||'')}</div>`:'';
+      const rejected=x.rejectedBy?`<div class="meta">❌ ปฏิเสธโดย ${esc(x.rejectedBy)} เมื่อ ${esc(new Date(x.rejectedAt).toLocaleString())}</div>`:'';
+      const result=x.result?`<div class="meta">ผลการทำงานล่าสุด: ${esc(x.result.status||x.result.jobStatus||'recorded')} · คำขอ ${esc(x.requestId)}</div>`:'';
+      return `<article id="approval-${esc(x.id)}" class="approval-card"><h4>${esc(x.domain)} คำขออนุมัติงาน <span class="approval-status ${cls}">${status}</span></h4><div class="meta">เสนอเมื่อ ${when} · รหัสคำขอ ${esc(x.requestId)}</div>${scopeHtml}<details data-review-details="${esc(x.id)}"><summary>🔍 ดูข้อมูลทางเทคนิค (Technical JSON &amp; SHA-256)</summary><pre>${payload}</pre></details>${proof}${rejected}${result}${uncertain?'<p class="approval-note">ยังไม่ทราบผลคำขอก่อนหน้า ตรวจสอบสถานะเท่านั้น ห้ามอนุมัติซ้ำ</p>':''}<div class="approval-actions">${buttons}</div></article>`;
     }).join('');
     if(validRequestedApprovalId&&!approvalTargetFocused){
       const target=document.getElementById('approval-'+validRequestedApprovalId);
       if(target){approvalTargetFocused=true;target.scrollIntoView({behavior:'smooth',block:'center'});}
     }
     document.querySelectorAll('[data-review-details]').forEach(d=>d.addEventListener('toggle',()=>{
-      const id=d.dataset.reviewDetails,check=document.querySelector(`[data-reviewed=\"${CSS.escape(id)}\"]`),approve=document.querySelector(`[data-approve=\"${CSS.escape(id)}\"]`);
-      if(!d.open&&check){check.checked=false;check.disabled=true;if(approve)approve.disabled=true;}
-      else if(d.open&&check)check.disabled=false;
+      const id=d.dataset.reviewDetails,check=document.querySelector(`[data-reviewed="${CSS.escape(id)}"]`);
+      if(check)check.disabled=false;
     }));
     document.querySelectorAll('[data-reviewed]').forEach(c=>c.addEventListener('change',()=>{
       const b=document.querySelector(`[data-approve=\"${CSS.escape(c.dataset.reviewed)}\"]`);if(b)b.disabled=!c.checked;

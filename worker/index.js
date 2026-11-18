@@ -269,11 +269,14 @@ export const tools=[
 {name:'factory_code_deliver_github',description:'Create a GitHub work branch, exact CODE source file and review PR only from a verified existing GO-owned Factory CODE receipt. No rerun, merge or deployment; uncertain effects require read-only reconciliation.',inputSchema:SCHEMA({receiptId:Q,repo:Q,baseSha:Q,filePath:Q,requestId:Q,approved:{type:'boolean',const:true}},['receiptId','repo','baseSha','filePath','requestId','approved']),annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}},
 ];
 
+const GO_OWNED_HUB_GROUPS=new Set(['brain','factory','observatory','goview']);
 async function toolCall(name,a,d,env,local=false,ctx=null){if(!a||typeof a!=='object')a={};
 if(name.startsWith('pantheon_')||name==='factory_report')throw new Bad(410,'PANTHEON_DISCONNECTED');
 if(name==='release_control'){restrict(a,['action','releaseId','requestId','goSha','hubSha','authorization']);if(local)throw Error('RELEASE_PRIVATE_RELAY_REFUSED');if(!env.HUB_V2?.releaseControl)throw Error('RELEASE_CONTROLLER_NOT_INSTALLED');return env.HUB_V2.releaseControl(a);}
 if(name.startsWith('github_code_job_'))throw new Bad(403,'OWNER_APPROVAL_ROUTE_REQUIRED');
-if(!local&&hubGroup(name)&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:card|search|keyword_finder|association_status|association_process|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name)))return hubTool(env,name,a);
+const group=hubGroup(name);
+const relayOwned=env.HUB_RELAY_OWNED_TOOLS==='true'&&!(env.BRAIN_AUTH_MODE==='ACCESS'&&/^brain_(?:card|search|keyword_finder|association_status|association_process|retrieve|list|save|edit|set_status|history|summarize|reference_check|reference_audit|context)$/.test(name));
+if(!local&&group&&(!GO_OWNED_HUB_GROUPS.has(group)||relayOwned))return hubTool(env,name,a);
 if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
@@ -344,7 +347,9 @@ function mcpReply(id,result,modern=false){
  return rpc(id,payload);
 }
 async function mcp(req,env,ctx){
- if(req.method!=='POST')return error(405,'method_not_allowed');
+ if(req.method==='OPTIONS')return new Response(null,{status:204,headers:{allow:'POST, DELETE, OPTIONS','access-control-allow-origin':'*','access-control-allow-methods':'POST, DELETE, OPTIONS','access-control-allow-headers':'authorization, content-type, mcp-protocol-version, mcp-session-id'}});
+ if(req.method==='DELETE')return new Response(null,{status:204,headers:{'cache-control':'no-store'}});
+ if(req.method!=='POST')return new Response(JSON.stringify({error:'method_not_allowed'}),{status:405,headers:{'content-type':'application/json; charset=utf-8',allow:'POST, DELETE, OPTIONS','cache-control':'no-store'}});
  const reportedBytes=Number(req.headers.get('content-length')||0);
  if(reportedBytes>7_000_000)return error(413,'mcp_body_too_large');
  if((!Number.isFinite(reportedBytes)||reportedBytes<0||reportedBytes>1_000_000)&&

@@ -13,9 +13,14 @@ test('PANTHEON tools are absent and cached calls cannot touch old bindings',asyn
  const out=await (await worker.fetch(req({method:'tools/call',params:{name,arguments:{}}}),env,ctx)).json();assert.equal(out.error.message,'unknown_tool');
  }assert.equal(calls,0);
 });
-test('missing Hub does not fall back to app direct bindings',async()=>{
- let calls=0;const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',FACTORY_DIRECT:{fetch(){calls++;}}};
+test('when HUB_RELAY_OWNED_TOOLS is enabled, missing Hub fails closed without fallback',async()=>{
+ let calls=0;const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',HUB_RELAY_OWNED_TOOLS:'true',FACTORY_DIRECT:{fetch(){calls++;}}};
  const req=new Request(root,{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'factory_direct_status',arguments:{}}})});
  const out=await (await worker.fetch(req,env,ctx)).json();assert.equal(out.result.isError,true);assert.equal(out.result.content[0].text,'HUB_V2_NOT_CONFIGURED');assert.equal(calls,0);
+});
+test('default routing executes GO-owned factory_direct_status directly without HUB_V2',async()=>{
+ let calls=0;const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',FACTORY_DIRECT:{fetch:async()=>{calls++;return Response.json({service:'factory-district',stationId:'FACTORY-STATION',status:'READY',sourceSha:'a'.repeat(40),transport:{status:'READY'},machinery:{CODE:{status:'READY'}}});}}};
+ const req=new Request(root,{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'factory_direct_status',arguments:{}}})});
+ const out=await (await worker.fetch(req,env,ctx)).json();assert.equal(out.result.isError,undefined);assert.equal(JSON.parse(out.result.content[0].text).status,'CONNECTED');assert.equal(calls,1);
 });
 

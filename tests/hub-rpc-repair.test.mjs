@@ -24,9 +24,9 @@ test('reviewed repair restores named API service bindings and preserves all othe
  }
 });
 
-test('owner MCP Brain and Factory reads traverse Hub contract mock; no Factory job or public fallback',async()=>{
+test('owner MCP Brain and Factory reads run directly by default and traverse Hub contract mock when HUB_RELAY_OWNED_TOOLS=true',async()=>{
  const calls=[];
- const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.test',
+ const env={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.test',HUB_RELAY_OWNED_TOOLS:'true',
   DB:{prepare(sql){assert.match(sql,/^(?:SELECT|WITH)\b/);return {bind(){return this;},all:async()=>({results:[]})};}},
   FACTORY_DIRECT:{fetch:async req=>{
    calls.push(['factory',req.method,new URL(req.url).pathname]);

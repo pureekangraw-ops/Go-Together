@@ -1,7 +1,7 @@
 // Adapted from Metropolis/src/mcp-oauth.mjs at 092274f87033db7476477e756febe9206689a055; isolated GO Brain issuer, keys, scope and ledger.
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const ACCESS_TOKEN_TTL_SECONDS = 3600;
+const ACCESS_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACTOR_SCOPES = Object.freeze({ GO: 'brain-owner' });
 
@@ -167,7 +167,11 @@ async function resolveCimdClient(config, clientId) {
   const fetchImpl = config.fetchImpl || fetch;
   let response;
   try {
-    response = await fetchImpl(clientId, { headers: { accept: 'application/json' }, redirect: 'error' });
+    response = await fetchImpl(clientId, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(5000) : undefined,
+    });
   } catch {
     return null;
   }
@@ -211,6 +215,13 @@ function configured(config) {
 
 function nowSeconds(config) {
   return Math.floor(Number(config.now ? config.now() : Date.now() / 1000));
+}
+
+function accessTokenTtlSeconds(config) {
+  const configuredTtl = Number(config.ttlSeconds ?? config.accessTokenTtlSeconds);
+  return Number.isFinite(configuredTtl) && configuredTtl >= 60
+    ? configuredTtl
+    : ACCESS_TOKEN_TTL_SECONDS;
 }
 
 function refreshTokenTtlSeconds(config) {
@@ -308,9 +319,7 @@ export async function createTestAuthorizationCode(config = {}) {
 
 export async function createAccessToken(config = {}) {
   const issuedAt = nowSeconds(config);
-  const ttlSeconds = Number.isFinite(Number(config.ttlSeconds))
-    ? Math.max(60, Number(config.ttlSeconds))
-    : ACCESS_TOKEN_TTL_SECONDS;
+  const ttlSeconds = accessTokenTtlSeconds(config);
   return signEnvelope({
     type: 'access',
     iss: config.issuer,
@@ -592,7 +601,7 @@ export function createOAuthHandler(config = {}) {
           return json({
             access_token: await createTestAccessToken({ ...config, clientId: client.clientId, resource, subject: refresh.sub, actor: refresh.act, scope: refresh.scope }),
             token_type: 'Bearer',
-            expires_in: ACCESS_TOKEN_TTL_SECONDS,
+            expires_in: accessTokenTtlSeconds(config),
             refresh_token: rotatedRefreshToken,
             refresh_token_expires_in: refreshTokenTtlSeconds(config),
             scope: refresh.scope,
@@ -616,7 +625,7 @@ export function createOAuthHandler(config = {}) {
         return json({
           access_token: await createTestAccessToken({ ...config, clientId: client.clientId, resource, subject: code.sub, actor: code.act, scope: code.scope }),
           token_type: 'Bearer',
-          expires_in: ACCESS_TOKEN_TTL_SECONDS,
+          expires_in: accessTokenTtlSeconds(config),
           refresh_token: await createTestRefreshToken({ ...config, clientId: client.clientId, resource, subject: code.sub, actor: code.act, scope: code.scope }),
           refresh_token_expires_in: refreshTokenTtlSeconds(config),
           scope: code.scope,

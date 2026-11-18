@@ -22,6 +22,7 @@ import {factoryDirectStatus, factoryDirectAuthProbe, factoryDirectSubmit, factor
 import {FactoryApprovalError,createFactoryApproval,getFactoryApproval,listFactoryApprovals,approveFactoryApproval,rejectFactoryApproval,reconcileFactoryApproval} from './factory-approvals.mjs';
 import {brainOAuthConfig} from './oauth-ledger.mjs';
 import {observatoryDirect,isObservatoryTool} from './observatory-direct.mjs';
+import {tavilyDirect,isTavilyTool,TAVILY_TOOLS} from './tavily-direct.mjs';
 // GO-Together Personal Brain — single-owner, explicit Intake
 const SOURCE_SHA='__SOURCE_SHA__';
 const ORIGIN='https://go-together.pureekangraw.workers.dev';
@@ -224,6 +225,7 @@ export const tools=[
  {name:'goview_propose_pin',description:'Propose a labelled place coordinate to owner GOVIEW. Device shows owner confirmation; no write until approved. This is an unverified suggested location.',inputSchema:SCHEMA({commandId:Q,latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},label:{type:'string',minLength:1,maxLength:140},expectedRevision:{type:'integer',minimum:0}},['commandId','latitude','longitude','label'])},
  {name:'goview_command_status',description:'Read the exact direct GO map command delivery receipt. QUEUED does not mean saved or displayed.',inputSchema:SCHEMA({commandId:Q},['commandId']),annotations:{readOnlyHint:true}},
  ...OBS_TOOLS,
+ ...TAVILY_TOOLS,
 {name:'brain_search',description:'Search memory using lexical evidence matching; no autonomous reasoning.',inputSchema:SCHEMA({query:Q,limit:N,status:Q,kind:Q,match:{type:'string',enum:['all','any','phrase']},cursor:Q},['query'])},
 {name:'brain_keyword_finder',description:'Read current keyword associations and evidence-backed suggestions independently of Search and AI.',inputSchema:SCHEMA({query:Q,limit:N,status:Q,kind:Q,cursor:Q},['query']),annotations:{readOnlyHint:true}},
 {name:'brain_association_status',description:'Read association processing state for one exact current memory revision.',inputSchema:SCHEMA({id:Q},['id']),annotations:{readOnlyHint:true}},
@@ -276,6 +278,7 @@ if(name==='hub_connections'){restrict(a,[]);return hubConnections(env);}
 if(name==='hub_refresh'){restrict(a,['connectorId']);if(!env.HUB_V2)throw Error('HUB_V2_NOT_CONFIGURED');return env.HUB_V2.refresh(a.connectorId);}
 if(isGoviewTool(name))return goviewDirect(env,name,a);
 if(isObservatoryTool(name))return observatoryDirect(env,name,a);
+if(isTavilyTool(name))return tavilyDirect(env,name,a);
 if(name==='factory_job_stamp_status'){restrict(a,['receiptId']);return factoryJobStampStatus(env,a);}
 if(name==='factory_direct_status'){restrict(a,[]);return factoryDirectStatus(env);}
 if(name==='factory_direct_auth_probe'){restrict(a,[]);return factoryDirectAuthProbe(env);}
@@ -373,7 +376,7 @@ async function mcp(req,env,ctx){
       {type:'text',text:JSON.stringify({ok:true,observedAt:value.result.observedAt||null})}]},isModern);
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),
       content:[{type:'text',text:JSON.stringify(value)}],
-      ...((isObservatoryTool(name)||isGoviewTool(name)||hubGroup(name))&&value?.ok===false?{isError:true}:{})},isModern);
+      ...((isObservatoryTool(name)||isGoviewTool(name)||isTavilyTool(name)||hubGroup(name))&&value?.ok===false?{isError:true}:{})},isModern);
   }catch(e){
    return mcpReply(x.id,{...(isModern?{resultType:'complete'}:{}),content:[{type:'text',text:e.message}],isError:true},isModern);
   }

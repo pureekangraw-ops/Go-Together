@@ -10,7 +10,8 @@
     "OWNER_EMAIL": "pureekangraw@gmail.com",
     "ACCESS_AUD": "6b7b2007c1ae1b5e9215681bc94fd1b41edf3c6d4c87d3afebda01afd69c2dc8",
     "ACCESS_TEAM_DOMAIN": "pureekangraw.cloudflareaccess.com",
-    "BRAIN_ASSOCIATIONS_ENABLED": "true",
+    "BRAIN_ASSOCIATIONS_ENABLED": "false",
+    "ZERO_PAID_API": "true",
     "BRAIN_ASSOCIATION_MODEL": "gpt-4.1-mini-2025-04-14"
   },
   "d1_databases": [

@@ -1,5 +1,7 @@
 import {validRepositoryJob} from './factory-repository-job.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORK_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CHECKPOINT_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH=/^[a-f0-9]{64}$/;
 const DOMAINS=new Set(['CODE','VISUAL','LOGIC','PROOF']);
 const SENSITIVE_KEY=/(?:password|secret|credential|api[_-]?key|private[_-]?key|authorization|cookie)/i;
@@ -62,10 +64,22 @@ export async function listFactoryApprovals(db,limit=100){
   ]);
   return [...(pending.results||[]),...(recent.results||[])].map(view);
 }
-export async function createFactoryApproval(db,{domain,spec,requestId,githubDelivery,createdBy}={}){
+export async function createFactoryApproval(db,{domain,spec,requestId,workId,checkpointId,githubDelivery,createdBy}={}){
   if(!DOMAINS.has(domain)||!spec||typeof spec!=='object'||Array.isArray(spec))
     throw new FactoryApprovalError(400,'FACTORY_PROPOSAL_INVALID');
   if(!UUID.test(requestId||''))throw new FactoryApprovalError(400,'GO_REQUEST_ID_INVALID');
+  const prior=await db.prepare('SELECT * FROM factory_approvals WHERE request_id=?').bind(requestId).first();
+  if(domain==='CODE'){
+    if(workId===undefined&&checkpointId===undefined){
+      const existingPayload=parseJson(prior?.payload_json,{});
+      workId=existingPayload.workId||crypto.randomUUID();
+      checkpointId=existingPayload.checkpointId||`CP-${workId}`;
+    }
+    if(!WORK_ID.test(workId||'')||!CHECKPOINT_ID.test(checkpointId||''))
+      throw new FactoryApprovalError(400,'FACTORY_WORK_IDENTITY_INVALID');
+  }else if(workId!==undefined||checkpointId!==undefined){
+    throw new FactoryApprovalError(400,'FACTORY_WORK_IDENTITY_DOMAIN_INVALID');
+  }
   if(hasSensitiveKey({spec,githubDelivery}))throw new FactoryApprovalError(400,'SENSITIVE_INPUT_NOT_ALLOWED');
   if(typeof createdBy!=='string'||!createdBy.trim())throw new FactoryApprovalError(403,'OWNER_IDENTITY_REQUIRED');
   if(githubDelivery!==undefined){
@@ -77,12 +91,13 @@ export async function createFactoryApproval(db,{domain,spec,requestId,githubDeli
   }
   if(spec.repositoryJob!==undefined&&(domain!=='CODE'||githubDelivery!==undefined||Object.keys(spec).length!==1||!validRepositoryJob(spec.repositoryJob)))
     throw new FactoryApprovalError(400,'REPOSITORY_JOB_INVALID');
-  const payload={domain,spec,requestId,...(githubDelivery===undefined?{}:{githubDelivery})};
+  const payload={domain,spec,requestId,
+    ...(domain==='CODE'?{workId,checkpointId}:{}),
+    ...(githubDelivery===undefined?{}:{githubDelivery})};
   const payloadJson=canonical(payload);
   if(new TextEncoder().encode(payloadJson).length>65536)
     throw new FactoryApprovalError(413,'GO_JOB_TOO_LARGE');
   const payloadSha256=await digest(payloadJson);
-  const prior=await db.prepare('SELECT * FROM factory_approvals WHERE request_id=?').bind(requestId).first();
   if(prior){
     if(prior.payload_sha256!==payloadSha256)throw new FactoryApprovalError(409,'REQUEST_ID_PAYLOAD_CONFLICT');
     return view(prior);
@@ -118,10 +133,14 @@ export async function approveFactoryApproval(db,{id,payloadSha256,actor,dispatch
   const row=await rowById(db,id);
   if(!row)throw new FactoryApprovalError(404,'APPROVAL_NOT_FOUND');
   if(row.status!=='PENDING')throw new FactoryApprovalError(409,'APPROVAL_NOT_PENDING');
+  const storedPayload=parseJson(row.payload_json,{});
+  if(await digest(canonical(storedPayload))!==row.payload_sha256)
+    throw new FactoryApprovalError(409,'APPROVAL_PAYLOAD_TAMPERED');
   if(row.payload_sha256!==payloadSha256)throw new FactoryApprovalError(409,'APPROVAL_PAYLOAD_CHANGED');
   const claimed=await db.prepare(`UPDATE factory_approvals SET status='DISPATCHING',approved_by=?,approved_at=?,
-      approved_payload_sha256=?,updated_at=? WHERE id=? AND status='PENDING' AND payload_sha256=? RETURNING *`)
-    .bind(actor.trim(),now,payloadSha256,now,id,payloadSha256).first();
+      approved_payload_sha256=?,updated_at=? WHERE id=? AND status='PENDING' AND payload_sha256=?
+      AND payload_json=? RETURNING *`)
+    .bind(actor.trim(),now,payloadSha256,now,id,payloadSha256,row.payload_json).first();
   if(!claimed)throw new FactoryApprovalError(409,'APPROVAL_ALREADY_HANDLED');
   const payload=parseJson(claimed.payload_json,{});
   let result;

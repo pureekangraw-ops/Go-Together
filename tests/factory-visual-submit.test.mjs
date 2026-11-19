@@ -11,7 +11,7 @@ const sourceRef='r2://factory/edge-source/go/'+pngSha+'.png#sha256='+pngSha;
 const prefix='r2://factory/edge-results/'+jobId+'/CP-'+jobId+'/run-123';
 const ref=prefix+'/split-manifest.json',one=prefix+'/ONE.png',zip=prefix+'/visual-cutouts.zip';
 const sha=b=>createHash('sha256').update(b).digest('hex');
-const back={receiptId,workId:jobId,checkpointId:'CP-'+jobId,
+const back={receiptId,requestId,workId:jobId,checkpointId:'CP-'+jobId,
  originSystem:'go-together',actingActor:'GO',authorizationSource:'WORK_PASS',
  stationId:'FACTORY-STATION',sourceSha,domainVerified:true,domainCompleted:true,
  result:{ownerDomain:'VISUAL',artifactRefs:[ref,one,zip],evidenceRefs:[]}};
@@ -37,7 +37,8 @@ function makeEnv({corrupt=false}={}){
    return Response.json({service:'factory-district',stationId:'FACTORY-STATION',
     status:'AUTHENTICATED',nonce:arg.nonce,sourceSha,proof,readOnly:true,executed:false});
   }
-  if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId,jobId,receiptId,
+  if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId,jobId,
+   workId:jobId,checkpointId:'CP-'+jobId,receiptId,
    domain:'VISUAL',sourceSha,readback:back});
   if(path==='/station/readback/'+receiptId)return Response.json(back);
   if(path==='/station/go-artifact'){

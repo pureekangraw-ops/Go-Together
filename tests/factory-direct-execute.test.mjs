@@ -8,8 +8,11 @@ const ROOT='https://go-together.pureekangraw.workers.dev';
 const KEY='b'.repeat(64),SHA='a'.repeat(40);
 const ID='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const JOB='GOJOB-'+ 'a'.repeat(32);
+const WORK='c4cbf25b-5e8a-4c8d-a0c3-fad94d92e07e';
+const CHECKPOINT='checkpoint-original-go-work';
 const RID='receipt-11111111-2222-4333-8444-555555555555';
-const ART='r2://factory/edge-results/'+JOB+'/CP-'+JOB+'/run-1/main.js';
+const ART='r2://factory/edge-results/'+WORK+'/'+CHECKPOINT+'/run-1/main.js';
+const ARTIFACT_ID='c'.repeat(64);
 const ctx={access:{aud:'aud',getIdentity:async()=>({email:'owner@example.com'})}};
 const base={ACCESS_AUD:'aud',OWNER_EMAIL:'owner@example.com',
   DB:{prepare:()=>({first:async()=>({healthy:1})})}};
@@ -18,11 +21,31 @@ const spec={baseSource:'export default "before"',patch:{find:'before',replace:'a
 const bytes=new TextEncoder().encode('export default "after"');
 async function digest(data){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',data))]
   .map(x=>x.toString(16).padStart(2,'0')).join('');}
+const CODE_SHA=await digest(bytes);
+const CODE_STEPS=['INSPECT_REPOSITORY','PLAN_CHANGE','EXECUTE_CHANGE','RUN_TESTS',
+  'BUILD','INSPECT_ARTIFACT','CI_CHECKPOINT','DEPLOY','RUNTIME_VERIFY'];
 function readback() {
-  return {receiptId:RID,workId:JOB,checkpointId:'CP-'+JOB,stationId:'FACTORY-STATION',
+  const artifacts=[{receiptId:RID,jobId:JOB,requestId:ID,workId:WORK,checkpointId:CHECKPOINT,
+    artifactId:ARTIFACT_ID,ref:ART,filename:'main.js',
+    mediaType:'text/javascript; charset=utf-8',byteLength:bytes.length,
+    bytes:bytes.length,sha256:CODE_SHA}];
+  const executionProof={schema:'FACTORY_CODE_EXECUTION_PROOF_V1',
+    receiptId:RID,jobId:JOB,requestId:ID,workId:WORK,checkpointId:CHECKPOINT,
+    runId:'run-1',attemptId:'attempt-1',
+    executorRef:'code-machine://CLOUDFLARE_WORKER',
+    executionState:'COMPLETE',returnState:'RETURNED',
+    sourceSha:CODE_SHA,runtimeSha:CODE_SHA,
+    runtimeRef:'r2://factory/edge-results/'+WORK+'/'+CHECKPOINT+'/run-1/deployment.json',
+    deploymentRef:'r2://factory/edge-results/'+WORK+'/'+CHECKPOINT+'/run-1/deployment.json',
+    artifactRef:ART,artifactId:ARTIFACT_ID,
+    stepEvidence:CODE_STEPS.map((step,index)=>({step,
+      status:index===0?'READY':'PASS',evidenceRef:'r2://factory/evidence/'+step}))};
+  executionProof.artifact={artifactId:ARTIFACT_ID,ref:ART,filename:'main.js',
+    mediaType:'text/javascript; charset=utf-8',byteLength:bytes.length,sha256:CODE_SHA};
+  return {receiptId:RID,jobId:JOB,requestId:ID,workId:WORK,checkpointId:CHECKPOINT,stationId:'FACTORY-STATION',
     originSystem:'go-together',actingActor:'GO',authorizationSource:'WORK_PASS',
     domainVerified:true,domainCompleted:true,sourceSha:SHA,
-    result:{ownerDomain:'CODE',artifactRefs:[ART],evidenceRefs:['evidence://factory/go']}};
+    executionProof,result:{ownerDomain:'CODE',artifactRefs:[ART],evidenceRefs:['evidence://factory/go'],artifacts}};
 }
 function fixture(){
   const seen=[];
@@ -53,20 +76,24 @@ function fixture(){
           readOnly:true,executed:false});
       }
       if(path==='/station/go-job'){
-        assert.deepEqual(payload,{requestId:ID,domain:'CODE',spec,expectedSourceSha:SHA});
-        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,
-          receiptId:RID,domain:'CODE',sourceSha:SHA,readback:readback()});
+        assert.deepEqual(payload,{requestId:ID,domain:'CODE',spec,expectedSourceSha:SHA,
+          workId:WORK,checkpointId:CHECKPOINT});
+        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,workId:WORK,
+          checkpointId:CHECKPOINT,receiptId:RID,domain:'CODE',sourceSha:SHA,readback:readback()});
       }
       if(path==='/station/go-job-status'){
-        assert.deepEqual(payload,{requestId:ID});
-        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,
-          receiptId:RID,readback:readback()});
+        assert.deepEqual(payload,{requestId:ID,workId:WORK,checkpointId:CHECKPOINT});
+        return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,workId:WORK,
+          checkpointId:CHECKPOINT,receiptId:RID,readback:readback()});
       }
       if(path==='/station/readback/'+RID) return Response.json(readback());
       if(path==='/station/go-artifact'){
         assert.deepEqual(payload,{receiptId:RID,artifactRef:ART});
         return new Response(bytes,{headers:{'content-type':'text/javascript; charset=utf-8',
-          'x-factory-artifact-sha256':await digest(bytes),
+          'x-factory-artifact-sha256':CODE_SHA,
+          'x-factory-request-id':ID,'x-factory-job-id':JOB,'x-factory-work-id':WORK,
+          'x-factory-checkpoint-id':CHECKPOINT,'x-factory-artifact-id':ARTIFACT_ID,
+          'x-factory-artifact-filename':'main.js','x-factory-artifact-byte-length':String(bytes.length),
           'x-factory-receipt-id':RID,'x-factory-source-sha':SHA}});
       }
       throw Error('Unexpected Factory route '+path);
@@ -93,6 +120,42 @@ test('Factory MCP only stages proposals; legacy direct submit is not exposed',as
   assert.equal(legacy.data.error?.message,'unknown_tool');
   assert.equal(f.seen.length,0);
 });
+test('GO preserves correlated CODE execution proof and artifact metadata after readback',async()=>{
+  const f=fixture();
+  const result=await factoryDirectReadback(f.env,{receiptId:RID});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(result.executed,false,'readback itself is not an execution');
+  assert.equal(result.requestId,ID);
+  assert.equal(result.jobId,JOB);
+  assert.equal(result.workId,WORK);
+  assert.equal(result.checkpointId,CHECKPOINT);
+  assert.equal(result.executionProof.jobId,JOB);
+  assert.equal(result.executionProof.executionState,'COMPLETE');
+  assert.equal(result.artifacts[0].artifactId,ARTIFACT_ID);
+  assert.equal(result.artifacts[0].byteLength,bytes.length);
+});
+test('Owner-approved CODE submit preserves distinct request/work/job/checkpoint identity and actual bytes',async()=>{
+  const f=fixture();
+  const result=await factoryDirectSubmit(f.env,{domain:'CODE',spec,requestId:ID,
+    workId:WORK,checkpointId:CHECKPOINT},true);
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(result.status,'GO_FACTORY_DELIVERABLE_READY');
+  assert.equal(result.requestId,ID);
+  assert.equal(result.jobId,JOB);
+  assert.notEqual(result.jobId,result.workId);
+  assert.equal(result.workId,WORK);
+  assert.equal(result.checkpointId,CHECKPOINT);
+  assert.equal(result.executionProof.schema,'FACTORY_CODE_EXECUTION_PROOF_V1');
+  assert.equal(result.executionProof.receiptId,RID);
+  assert.equal(result.executionProof.jobId,JOB);
+  assert.equal(result.executionProof.workId,WORK);
+  assert.equal(result.executionProof.checkpointId,CHECKPOINT);
+  assert.equal(result.artifact.artifactId,ARTIFACT_ID);
+  assert.equal(result.artifact.byteLength,bytes.length);
+  assert.equal(result.artifact.filename,'main.js');
+  assert.equal(result.artifact.sha256,CODE_SHA);
+  assert.equal(result.deliveredBytes,true);
+});
 test('Anonymous calls cannot propose or dispatch Factory work',async()=>{
   const f=fixture();
   const anonymous=await mcp(f.env,'factory_direct_propose',{domain:'CODE',spec,requestId:ID},{});
@@ -103,7 +166,8 @@ test('Dummy Cloudflare keys fail closed and cannot run any request',async()=>{
   let requests=0;
   const env={...base,GO_FACTORY_RAIL_SECRET:'PENDING_REPLACE_GO_SIDE_20261023_INACTIVE',
     FACTORY_DIRECT:{fetch:async()=>{requests++;return Response.json({});}}};
-  const r=await factoryDirectSubmit(env,{domain:'CODE',spec,requestId:ID},true);
+  const r=await factoryDirectSubmit(env,{domain:'CODE',spec,requestId:ID,
+    workId:WORK,checkpointId:CHECKPOINT},true);
   assert.equal(r.status,'DIRECT_RAIL_NOT_CONFIGURED');
   assert.equal(requests,0);
 });
@@ -130,6 +194,8 @@ test('Direct GO MCP only exposes simple job commands, never requires Work Pass',
     assert.ok(!names.includes(t));
   const propose=tools.find(t=>t.name==='factory_direct_propose');
   assert.deepEqual(propose.inputSchema.required,['domain','spec','requestId']);
+  assert.ok(propose.inputSchema.properties.workId);
+  assert.ok(propose.inputSchema.properties.checkpointId);
   assert.equal(propose.annotations.destructiveHint,false);
   assert.ok(!JSON.stringify(propose.inputSchema).includes('approved'));
   assert.ok(!JSON.stringify(propose.inputSchema).includes('workPass'));
@@ -149,10 +215,14 @@ test('PROOF bridge returns receipt-bound report, not application acceptance', as
       const r=await before(request),h=await r.json();
       return Response.json({...h,machinery:{...h.machinery,PROOF:{status:'READY'}}});
     }
-    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,jobId:JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
-    if(path==='/station/readback/'+RID)return Response.json({...readback(),
-      result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
-      machineResult:{proofResult:report,reportRef:ref}});
+    if(path==='/station/go-job')return Response.json({status:'COMPLETED',requestId:ID,
+      jobId:JOB,workId:JOB,checkpointId:'CP-'+JOB,receiptId:RID,domain:'PROOF',sourceSha:SHA});
+    if(path==='/station/readback/'+RID){
+      const {executionProof:_codeProof,...proofReadback}=readback();
+      return Response.json({...proofReadback,jobId:JOB,workId:JOB,checkpointId:'CP-'+JOB,
+        result:{ownerDomain:'PROOF',artifactRefs:[ref],evidenceRefs:[ref]},
+        machineResult:{proofResult:report,reportRef:ref}});
+    }
     if(path==='/station/go-artifact'){
       const bytes=new TextEncoder().encode(JSON.stringify(report));
       return new Response(bytes,{headers:{'content-type':'application/json',

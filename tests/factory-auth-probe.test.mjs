@@ -46,7 +46,10 @@ for(const [name,responder,expected] of errors)test(name+' is explicit, sanitized
   const status=await factoryDirectStatus(f.env);
   assert.equal(status.commandReady,false);
   assert.equal(status.authStatus,expected);
-  const result=await factoryDirectSubmit(f.env,{domain:'CODE',spec:{}},true);
+  const result=await factoryDirectSubmit(f.env,{domain:'CODE',spec:{},
+    requestId:'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    workId:'c4cbf25b-5e8a-4c8d-a0c3-fad94d92e07e',
+    checkpointId:'checkpoint-original-go-work'},true);
   assert.equal(result.status,'GO_FACTORY_AUTH_NOT_READY');
   assert.equal(result.authStatus,expected);
   assert.equal(result.executed,false);

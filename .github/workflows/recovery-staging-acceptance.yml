@@ -1,0 +1,76 @@
+name: Recovery staging acceptance
+on:
+  push:
+    branches:
+      - fix/recovery-guard-tests-20261030
+    paths:
+      - .github/workflows/recovery-staging-acceptance.yml
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: recovery-staging-acceptance-20261031
+  cancel-in-progress: false
+jobs:
+  accept-staging:
+    if: contains(github.event.head_commit.message, '[run-stage-acceptance]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify event is the pinned staging branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/recovery-guard-tests-20261030"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_WORKFLOW_REF" = "pureekangraw-ops/Go-Together/.github/workflows/recovery-staging-acceptance.yml@refs/heads/fix/recovery-guard-tests-20261030"
+      - name: Verify paired staging acceptance phases
+        shell: bash
+        env:
+          STAGE_GO_URL: https://go-together-recovery-test-20261031.pureekangraw.workers.dev
+          REQUEST_ID: 21b7211c-e33a-47bd-9b54-1a5fa4b0c6b1
+          GO_VERSION: d0fa9e67-f24f-4273-8b7a-59de16c244a6
+        run: |
+          set -euo pipefail
+          test "$GO_VERSION" = "d0fa9e67-f24f-4273-8b7a-59de16c244a6"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          audience="go-release-staging:${REQUEST_ID}"
+          encoded_audience="$(jq -nr --arg value "$audience" '$value | @uri')"
+          oidc_status="$(curl --silent --show-error --output "$tmp/oidc.json" --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded_audience}")"
+          if [[ "$oidc_status" != "200" ]]; then
+            echo "OIDC token request failed: HTTP ${oidc_status}"
+            jq -r 'if type == "object" then (.error // .error_description // "no safe diagnostic") else "non-JSON response" end' "$tmp/oidc.json"
+            exit 1
+          fi
+          id_token="$(jq -er '.value' "$tmp/oidc.json")"
+          payload_segment="$(cut -d. -f2 <<<"$id_token" | tr '_-' '/+')"
+          case $((${#payload_segment} % 4)) in
+            2) payload_segment+='==' ;;
+            3) payload_segment+='=' ;;
+          esac
+          claims="$(printf '%s' "$payload_segment" | base64 -d | jq '{aud,sub,repository,repository_id,ref,event_name,workflow_ref,run_attempt,run_id,exp,iat}')"
+          echo "Verified OIDC claim fields: ${claims}"
+          for phase in go final; do
+            request="$(jq -cn --arg requestId "$REQUEST_ID" --arg goVersion "$GO_VERSION" --arg phase "$phase" '{requestId:$requestId,goVersion:$goVersion,phase:$phase}')"
+            status="$(curl --silent --show-error --output "$tmp/response.json" --write-out '%{http_code}' \
+              -H "Authorization: Bearer ${id_token}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${STAGE_GO_URL}/_release/acceptance" \
+              --data "$request")"
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Staging acceptance phase=${phase} failed: HTTP ${status}"
+              jq -r 'if type == "object" then (.error // .code // "no safe diagnostic") else "no safe diagnostic" end' "$tmp/response.json"
+              exit 1
+            fi
+            response="$(cat "$tmp/response.json")"
+            jq -e --arg requestId "$REQUEST_ID" --arg goVersion "$GO_VERSION" --arg phase "$phase" '
+              .ok == true and .requestId == $requestId and .goVersion == $goVersion and
+              .pending == "PRESERVED" and .goReadback == "VERIFIED" and
+              (if $phase == "final" then .privateRpc == "VERIFIED" else .privateRpc == "NOT_RUN" end)
+            ' <<<"$response" >/dev/null
+            jq -c '{ok,requestId,goVersion,phase:(if .privateRpc == "VERIFIED" then "final" else "go" end),privateRpc,pending,goReadback}' <<<"$response"
+          done

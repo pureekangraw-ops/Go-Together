@@ -2,7 +2,15 @@
 
 GO reasons, verifies, decides, and chooses what to remember. Intake is a deterministic tool: **search, retrieve, organize, edit, and provide source extracts for summarization**. It does not think independently, invent fields, or silently change records.
 
-## Production — GO Brain direct OAuth
+## Production — Cloudflare Access Managed OAuth (2026-11-09)
+
+- The existing Worker `go-together` and its dedicated D1 `go-together` are retained unchanged.
+- Existing Cloudflare Access application **GO-Together Owner Login** protects `/auth/*`, `/api/*`, and now `/mcp` with the same **Owner email only** policy.
+- Access **Managed OAuth** is enabled for MCP clients. Clients authenticate through Access (DCR/PKCE); the Worker verifies the signed `Cf-Access-Jwt-Assertion` against `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, and `OWNER_EMAIL`.
+- Production Worker environment uses `BRAIN_AUTH_MODE=ACCESS` (not `DIRECT`); do not reset it to the old value in future deployments. Native OAuth routes are legacy and not the active MCP authentication path.
+- Cloudflare configuration has been verified, but ChatGPT OAuth consent and a successful owner-authenticated `brain_list` remain necessary to confirm end-to-end operation.
+
+## Legacy setup — GO Brain direct OAuth (pre-Access)
 
 - Worker/web UI: https://go-together.pureekangraw.workers.dev
 - MCP: https://go-together.pureekangraw.workers.dev/mcp

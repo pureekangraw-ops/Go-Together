@@ -53,5 +53,8 @@
       "service": "ygg-connection-hub-v2",
       "entrypoint": "HubBridge"
     }
-  ]
+  ],
+  "build": {
+    "command": "node scripts/deployment-preflight.mjs hub"
+  }
 }

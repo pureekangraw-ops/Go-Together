@@ -32,5 +32,8 @@
     "crons": [
       "*/15 * * * *"
     ]
+  },
+  "build": {
+    "command": "node scripts/deployment-preflight.mjs brain"
   }
 }
